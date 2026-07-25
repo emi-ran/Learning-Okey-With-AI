@@ -70,6 +70,7 @@ class GameConfig(RulesConfig):
     """Top-level configuration for a match."""
 
     rounds: int = 1
+    void_round_counts_toward_match: bool = False
     scoring: ScoringConfig = ScoringConfig()
 
     def __post_init__(self) -> None:
