@@ -2,9 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Sequence
 from dataclasses import replace
-from itertools import combinations
+
+from okey101.solver.attachment_solver import generate_attachments
+from okey101.solver.meld_generator import (
+    generate_melds as generate_meld_candidates,
+)
+from okey101.solver.opening_solver import find_legal_openings
+from okey101.solver.pair_solver import (
+    find_pair_openings,
+    generate_pairs as generate_pair_candidates,
+)
 
 from .actions import (
     Action,
@@ -20,148 +28,11 @@ from .actions import (
 )
 from .config import RulesConfig
 from .joker import effective_value, is_real_okey
-from .melds import Meld, MeldKind, MeldTile
-from .pairs import Pair, build_pair
+from .melds import Meld
+from .pairs import Pair
 from .player import OpenedMode
 from .state import DrawSource, GameState, TurnContext, TurnPhase
-from .table import AttachmentSide, TableMeld
-from .tiles import Color, PhysicalTile, TileKind, TileValue
-
-
-_RUN_TARGETS = tuple(
-    tuple(TileValue(color, number) for number in range(start, end + 1))
-    for color in Color
-    for start in range(1, 12)
-    for end in range(start + 2, 14)
-)
-_SET_TARGETS = tuple(
-    tuple(TileValue(color, number) for color in colors)
-    for number in range(1, 14)
-    for length in (3, 4)
-    for colors in combinations(Color, length)
-)
-
-
-def _index_hand(
-    hand: Sequence[PhysicalTile],
-    okey_value: TileValue,
-) -> tuple[dict[TileValue, tuple[PhysicalTile, ...]], tuple[PhysicalTile, ...]]:
-    fixed_by_value: dict[TileValue, list[PhysicalTile]] = {}
-    jokers: list[PhysicalTile] = []
-    for tile in hand:
-        value = effective_value(tile, okey_value)
-        if value is None:
-            jokers.append(tile)
-        else:
-            fixed_by_value.setdefault(value, []).append(tile)
-    return (
-        {
-            value: tuple(sorted(tiles, key=lambda candidate: candidate.id))
-            for value, tiles in fixed_by_value.items()
-        },
-        tuple(sorted(jokers, key=lambda candidate: candidate.id)),
-    )
-
-
-def _assign_indexed_targets(
-    fixed_by_value: dict[TileValue, tuple[PhysicalTile, ...]],
-    jokers: tuple[PhysicalTile, ...],
-    targets: Sequence[TileValue],
-) -> tuple[tuple[MeldTile, ...], ...]:
-    if sum(bool(fixed_by_value.get(target)) for target in targets) + len(jokers) < len(
-        targets
-    ):
-        return ()
-    results: list[tuple[MeldTile, ...]] = []
-
-    def visit(
-        target_index: int,
-        used_ids: frozenset[int],
-        assigned: tuple[MeldTile, ...],
-    ) -> None:
-        if target_index == len(targets):
-            results.append(assigned)
-            return
-        target = targets[target_index]
-        choices = (*fixed_by_value.get(target, ()), *jokers)
-        for tile in choices:
-            if tile.id in used_ids:
-                continue
-            visit(
-                target_index + 1,
-                used_ids | {tile.id},
-                (*assigned, MeldTile(tile, target)),
-            )
-
-    visit(0, frozenset(), ())
-    return tuple(results)
-
-
-def _target_tile_assignments(
-    hand: Sequence[PhysicalTile],
-    targets: Sequence[TileValue],
-    okey_value: TileValue,
-) -> tuple[tuple[MeldTile, ...], ...]:
-    """Assign distinct physical tiles to an ordered logical target."""
-
-    fixed_by_value, jokers = _index_hand(hand, okey_value)
-    return _assign_indexed_targets(fixed_by_value, jokers, targets)
-
-
-def generate_meld_candidates(
-    hand: Sequence[PhysicalTile],
-    okey_value: TileValue,
-) -> tuple[Meld, ...]:
-    """Enumerate canonical run/set candidates without subset brute force."""
-
-    candidates: list[Meld] = []
-    fixed_by_value, jokers = _index_hand(hand, okey_value)
-    for targets in _RUN_TARGETS:
-        for assignment in _assign_indexed_targets(
-            fixed_by_value,
-            jokers,
-            targets,
-        ):
-            candidates.append(Meld(MeldKind.RUN, assignment))
-
-    for targets in _SET_TARGETS:
-        for assignment in _assign_indexed_targets(
-            fixed_by_value,
-            jokers,
-            targets,
-        ):
-            candidates.append(Meld(MeldKind.SET, assignment))
-
-    deduplicated: dict[tuple[object, ...], Meld] = {}
-    for meld in candidates:
-        key = (
-            meld.kind,
-            tuple(
-                (
-                    tile.physical_tile.id,
-                    tile.represented_value.color,
-                    tile.represented_value.number,
-                )
-                for tile in meld.tiles
-            ),
-        )
-        deduplicated[key] = meld
-    return tuple(deduplicated[key] for key in sorted(deduplicated, key=repr))
-
-
-def generate_pair_candidates(
-    hand: Sequence[PhysicalTile],
-    okey_value: TileValue,
-) -> tuple[Pair, ...]:
-    """Enumerate all physical two-tile pairs, including Okey combinations."""
-
-    pairs: list[Pair] = []
-    for first, second in combinations(hand, 2):
-        try:
-            pairs.append(build_pair((first, second), okey_value))
-        except ValueError:
-            continue
-    return tuple(pairs)
+from .tiles import PhysicalTile, TileKind
 
 
 def _meld_ids(meld: Meld) -> frozenset[int]:
@@ -172,136 +43,41 @@ def _pair_ids(pair: Pair) -> frozenset[int]:
     return frozenset(tile.physical_tile.id for tile in pair.tiles)
 
 
-def _opening_meld_groups(
-    candidates: Sequence[Meld],
-    *,
-    threshold: int,
-    hand_size: int,
-) -> tuple[tuple[Meld, ...], ...]:
-    groups: list[tuple[Meld, ...]] = []
-    candidate_ids = tuple(_meld_ids(meld) for meld in candidates)
-
-    def visit(
-        start: int,
-        selected: tuple[Meld, ...],
-        used_ids: frozenset[int],
-        score: int,
-    ) -> None:
-        if selected and score >= threshold:
-            groups.append(selected)
-        for index in range(start, len(candidates)):
-            ids = candidate_ids[index]
-            if ids & used_ids or len(used_ids | ids) >= hand_size:
-                continue
-            visit(
-                index + 1,
-                (*selected, candidates[index]),
-                used_ids | ids,
-                score + candidates[index].score,
-            )
-
-    visit(0, (), frozenset(), 0)
-    return tuple(groups)
-
-
-def _opening_pair_groups(
-    candidates: Sequence[Pair],
-    *,
-    threshold: int,
-    hand_size: int,
-) -> tuple[tuple[Pair, ...], ...]:
-    groups: list[tuple[Pair, ...]] = []
-    candidate_ids = tuple(_pair_ids(pair) for pair in candidates)
-
-    def visit(
-        start: int,
-        selected: tuple[Pair, ...],
-        used_ids: frozenset[int],
-    ) -> None:
-        if len(selected) >= threshold:
-            groups.append(selected)
-        for index in range(start, len(candidates)):
-            ids = candidate_ids[index]
-            if ids & used_ids or len(used_ids | ids) >= hand_size:
-                continue
-            visit(index + 1, (*selected, candidates[index]), used_ids | ids)
-
-    visit(0, (), frozenset())
-    return tuple(groups)
-
-
-def _attachment_targets(
-    table_meld: TableMeld,
-    side: AttachmentSide,
-    amount: int,
-) -> tuple[TileValue, ...]:
-    represented = tuple(tile.represented_value for tile in table_meld.meld.tiles)
-    if table_meld.meld.kind is MeldKind.RUN:
-        color = represented[0].color
-        if side is AttachmentSide.LEFT:
-            start = represented[0].number - amount
-            if start < 1:
-                return ()
-            return tuple(
-                TileValue(color, number)
-                for number in range(start, represented[0].number)
-            )
-        end = represented[-1].number + amount
-        if end > 13:
-            return ()
-        return tuple(
-            TileValue(color, number)
-            for number in range(represented[-1].number + 1, end + 1)
-        )
-
-    if side is not AttachmentSide.SET:
-        return ()
-    number = represented[0].number
-    used_colors = {value.color for value in represented}
-    missing = tuple(color for color in Color if color not in used_colors)
-    if amount > len(missing):
-        return ()
-    # SET callers expand each color combination separately.
-    return tuple(TileValue(color, number) for color in missing)
-
-
 def _attachment_actions(
     state: GameState,
-    hand: Sequence[PhysicalTile],
+    hand: tuple[PhysicalTile, ...],
     config: RulesConfig,
     *,
     preserve_final_discard: bool = True,
 ) -> tuple[AddToMeld, ...]:
     actions: list[AddToMeld] = []
+    usable_hand_size = len(hand) - int(preserve_final_discard)
+    if usable_hand_size < 1:
+        return ()
     for table_meld in state.table.melds:
-        if table_meld.meld.kind is MeldKind.RUN:
-            sides = (AttachmentSide.LEFT, AttachmentSide.RIGHT)
-        else:
-            sides = (AttachmentSide.SET,)
-        for side in sides:
-            already_used = state.turn_context.attachment_count(table_meld.id, side)
+        candidates = generate_attachments(
+            table_meld.meld,
+            hand,
+            state.okey_value,
+            max_tiles=min(
+                config.max_contiguous_attach,
+                usable_hand_size,
+            ),
+        )
+        for candidate in candidates:
+            already_used = state.turn_context.attachment_count(
+                table_meld.id,
+                candidate.side,
+            )
             remaining = config.max_contiguous_attach - already_used
-            usable_hand_size = len(hand) - int(preserve_final_discard)
-            for amount in range(1, min(2, remaining, usable_hand_size) + 1):
-                targets = _attachment_targets(table_meld, side, amount)
-                target_groups: Iterable[tuple[TileValue, ...]]
-                if table_meld.meld.kind is MeldKind.SET:
-                    target_groups = combinations(targets, amount)
-                else:
-                    target_groups = (targets,) if len(targets) == amount else ()
-                for target_group in target_groups:
-                    for assignment in _target_tile_assignments(
-                        hand,
-                        target_group,
-                        state.okey_value,
-                    ):
-                        actions.append(
-                            AddToMeld(
-                                meld_id=table_meld.id,
-                                tiles=assignment,
-                                side=side,
-                            )
-                        )
+            if len(candidate.tiles) <= remaining:
+                actions.append(
+                    AddToMeld(
+                        meld_id=table_meld.id,
+                        tiles=candidate.tiles,
+                        side=candidate.side,
+                    )
+                )
     return tuple(actions)
 
 
@@ -356,30 +132,41 @@ def _table_actions(state: GameState, config: RulesConfig) -> tuple[Action, ...]:
     player = state.current_player_state
     hand = player.hand
     actions: list[Action] = []
-    meld_candidates = generate_meld_candidates(hand, state.okey_value)
-    pair_candidates = generate_pair_candidates(hand, state.okey_value)
+    required_tile_id = (
+        state.turn_context.taken_discard_tile_id
+        if state.turn_context.must_use_taken_discard
+        else None
+    )
 
     if player.opened_mode is OpenedMode.NONE:
         actions.extend(
-            OpenMelds(group)
-            for group in _opening_meld_groups(
-                meld_candidates,
+            OpenMelds(candidate.melds)
+            for candidate in find_legal_openings(
+                hand,
+                state.okey_value,
                 threshold=state.progressive_series_threshold,
-                hand_size=len(hand),
+                required_tile_id=required_tile_id,
+                preserve_final_discard=True,
             )
         )
         actions.extend(
-            OpenPairs(group)
-            for group in _opening_pair_groups(
-                pair_candidates,
+            OpenPairs(candidate.pairs)
+            for candidate in find_pair_openings(
+                hand,
+                state.okey_value,
                 threshold=state.progressive_pair_threshold,
-                hand_size=len(hand),
+                required_tile_id=required_tile_id,
+                preserve_final_discard=True,
             )
         )
     elif player.opened_mode is OpenedMode.SERIES:
         actions.extend(
             OpenMelds((meld,))
-            for meld in meld_candidates
+            for meld in generate_meld_candidates(
+                hand,
+                state.okey_value,
+                required_tile_id=required_tile_id,
+            )
             if len(_meld_ids(meld)) < len(hand)
         )
 
@@ -389,7 +176,11 @@ def _table_actions(state: GameState, config: RulesConfig) -> tuple[Action, ...]:
         if player.opened_mode is OpenedMode.PAIRS or state.table.pairs:
             actions.extend(
                 AddPair(pair)
-                for pair in pair_candidates
+                for pair in generate_pair_candidates(
+                    hand,
+                    state.okey_value,
+                    required_tile_id=required_tile_id,
+                )
                 if len(_pair_ids(pair)) < len(hand)
             )
 
