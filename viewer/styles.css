@@ -212,6 +212,10 @@ p {
   transition: 160ms ease;
 }
 
+.training-link {
+  text-decoration: none;
+}
+
 .file-button:hover,
 .icon-button:hover,
 .icon-button[aria-pressed="true"] {

@@ -557,6 +557,24 @@ async function loadFile(file) {
   }
 }
 
+async function loadReplayUrl(url) {
+  try {
+    byId("replayStatus").textContent = "YÜKLENİYOR";
+    const response = await fetch(url, { cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    replay = normalizeReplay(await response.json());
+    frameIndex = 0;
+    playing = false;
+    clearInterval(timer);
+    byId("playIcon").textContent = "▶";
+    byId("replayStatus").textContent = "REPLAY";
+    render();
+  } catch (error) {
+    byId("replayStatus").textContent = "HATA";
+    window.alert(`Replay açılamadı: ${error.message}`);
+  }
+}
+
 function formatNumber(value) {
   return new Intl.NumberFormat("tr-TR", { notation: Number(value) >= 1000000 ? "compact" : "standard" }).format(value);
 }
@@ -625,4 +643,9 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-render();
+const initialReplayUrl = new URLSearchParams(window.location.search).get("replay");
+if (initialReplayUrl) {
+  loadReplayUrl(initialReplayUrl);
+} else {
+  render();
+}

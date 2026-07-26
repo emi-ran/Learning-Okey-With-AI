@@ -1,0 +1,204 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="AI Okey self-play eğitimini episode episode canlı izleyin."
+    />
+    <title>AI Okey — Canlı Eğitim Locası</title>
+    <link rel="stylesheet" href="./training.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <main class="training-shell">
+      <header class="scoreboard">
+        <a class="brand" href="./" aria-label="Replay masasına dön">
+          <span class="brand-tiles" aria-hidden="true">
+            <i>1</i><i>0</i><i>1</i>
+          </span>
+          <span>
+            <small>SELF-PLAY YAYINI</small>
+            <strong>Canlı Eğitim Locası</strong>
+          </span>
+        </a>
+
+        <div class="connection" id="connectionBadge" data-state="waiting">
+          <span></span>
+          <b id="connectionText">DURUM BEKLENİYOR</b>
+        </div>
+
+        <div class="run-clock">
+          <small>GEÇEN SÜRE</small>
+          <strong id="elapsedTime">00:00</strong>
+        </div>
+      </header>
+
+      <section class="hero-grid">
+        <article class="progress-stage">
+          <div class="section-kicker">EĞİTİM DURUMU</div>
+          <div class="progress-copy">
+            <div>
+              <h1 id="phaseTitle">Trainer bekleniyor</h1>
+              <p id="phaseMessage">
+                Eğitim komutu başladığında bu ekran otomatik güncellenecek.
+              </p>
+            </div>
+            <div class="episode-counter">
+              <span id="episodeCurrent">0</span>
+              <i>/</i>
+              <strong id="episodeTarget">200</strong>
+              <small>EPISODE</small>
+            </div>
+          </div>
+          <div class="progress-track" aria-label="Eğitim ilerlemesi">
+            <i id="progressFill"></i>
+            <div id="checkpointTicks" class="checkpoint-ticks"></div>
+          </div>
+          <div class="progress-meta">
+            <span id="progressPercent">0.0%</span>
+            <span id="nextCheckpoint">İlk checkpoint hazırlanıyor</span>
+          </div>
+        </article>
+
+        <aside class="live-ticket">
+          <div>
+            <small>RUN</small>
+            <strong id="runName">—</strong>
+          </div>
+          <div>
+            <small>TRAIN SEED</small>
+            <strong id="trainSeed">—</strong>
+          </div>
+          <div>
+            <small>REPLAY SEED</small>
+            <strong id="replaySeed">—</strong>
+          </div>
+          <div>
+            <small>SON GÜNCELLEME</small>
+            <strong id="lastUpdated">—</strong>
+          </div>
+        </aside>
+      </section>
+
+      <section class="metrics-strip" aria-label="Canlı eğitim ölçümleri">
+        <article>
+          <small>SON LOSS</small>
+          <strong id="lastLoss">—</strong>
+          <span>policy + value</span>
+        </article>
+        <article>
+          <small>ORT. SKOR</small>
+          <strong id="lastScore">—</strong>
+          <span>düşük daha iyi</span>
+        </article>
+        <article>
+          <small>GRADIENT NORM</small>
+          <strong id="lastGradient">—</strong>
+          <span>son güncelleme</span>
+        </article>
+        <article>
+          <small>HAMLE</small>
+          <strong id="lastActions">—</strong>
+          <span>son episode</span>
+        </article>
+      </section>
+
+      <section class="analysis-grid">
+        <article class="chart-card">
+          <div class="card-heading">
+            <div>
+              <small>EPISODE TELEMETRİSİ</small>
+              <h2>Öğrenme nabzı</h2>
+            </div>
+            <div class="legend">
+              <span class="loss-key">Loss</span>
+              <span class="score-key">Ortalama skor</span>
+            </div>
+          </div>
+          <svg
+            id="trainingChart"
+            class="training-chart"
+            viewBox="0 0 900 300"
+            role="img"
+            aria-label="Loss ve skor grafiği"
+          >
+            <g class="chart-grid">
+              <line x1="45" y1="35" x2="875" y2="35"></line>
+              <line x1="45" y1="105" x2="875" y2="105"></line>
+              <line x1="45" y1="175" x2="875" y2="175"></line>
+              <line x1="45" y1="245" x2="875" y2="245"></line>
+            </g>
+            <polyline id="scoreLine" class="score-line" points=""></polyline>
+            <polyline id="lossLine" class="loss-line" points=""></polyline>
+            <text id="chartEmpty" x="450" y="150" text-anchor="middle">
+              İlk episode bekleniyor
+            </text>
+          </svg>
+        </article>
+
+        <article class="episode-log-card">
+          <div class="card-heading">
+            <div>
+              <small>SON ELLER</small>
+              <h2>Trainer günlüğü</h2>
+            </div>
+          </div>
+          <ol id="episodeLog" class="episode-log">
+            <li class="empty-row">Henüz tamamlanan episode yok.</li>
+          </ol>
+        </article>
+      </section>
+
+      <section class="checkpoint-section">
+        <div class="checkpoint-heading">
+          <div>
+            <small>SABİT SEED: 0 · 20 · 80 · 200</small>
+            <h2>Checkpoint film şeridi</h2>
+          </div>
+          <p>
+            Her kart aynı dağıtım seed’ini oynatır; böylece kararların zamanla
+            nasıl değiştiğini karşılaştırabilirsin.
+          </p>
+        </div>
+        <div id="checkpointGrid" class="checkpoint-grid"></div>
+      </section>
+
+      <footer>
+        <span>Politika yalnız oyuncu gözlemini görür.</span>
+        <span>Seyirci elleri sadece replay katmanında açılır.</span>
+      </footer>
+    </main>
+
+    <template id="checkpointTemplate">
+      <article class="checkpoint-card" data-status="pending">
+        <div class="checkpoint-card-head">
+          <div>
+            <small class="checkpoint-step">CHECKPOINT</small>
+            <h3 class="checkpoint-name">0 episode</h3>
+          </div>
+          <span class="checkpoint-status">BEKLİYOR</span>
+        </div>
+        <div class="video-shell">
+          <div class="video-placeholder">
+            <span>101</span>
+            <p>Checkpoint geldiğinde video burada açılacak.</p>
+          </div>
+        </div>
+        <dl class="checkpoint-metrics">
+          <div><dt>Ort. skor</dt><dd data-metric="score">—</dd></div>
+          <div><dt>Göreli ödül</dt><dd data-metric="reward">—</dd></div>
+          <div><dt>İşlek atma</dt><dd data-metric="playable">—</dd></div>
+          <div><dt>Okey atma</dt><dd data-metric="okey">—</dd></div>
+        </dl>
+        <div class="checkpoint-actions">
+          <a class="replay-link is-disabled" href="#">Replay’i aç</a>
+          <a class="download-link is-disabled" href="#" download>MP4 indir</a>
+        </div>
+      </article>
+    </template>
+
+    <script src="./training.js"></script>
+  </body>
+</html>

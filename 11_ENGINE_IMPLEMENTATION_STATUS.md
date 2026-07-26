@@ -46,6 +46,9 @@ Bu belge kuralların kaynağı değildir. Kurallar için
 - Fixed-seed checkpoint comparison manifests
 - Responsive replay viewer with player/spectator visibility and policy analysis
 - Pillow frame renderer and FFmpeg H.264 MP4 export
+- Episode-by-episode live training dashboard fed by atomic status snapshots
+- One-command progression runs with automatic checkpoint evaluation, replay,
+  poster and MP4 outputs
 - Deterministik `RandomAgent`
 - Multi-round `MatchEngine`
 - Paralel benchmark/stress ve replayable failure artifacts
@@ -94,13 +97,14 @@ python -m benchmarks.random_baseline --episodes 1000 --start-seed 0 --json
 python -m okey101.training.cli --episodes 40 --seed 0 --checkpoint training_runs\checkpoint-40.npz --evaluate 20 --json
 python -m benchmarks.replay --model-checkpoint training_runs\checkpoint-40.npz --seeds 42 --output-dir replay_runs\checkpoint-40 --top-candidates 5 --json
 python -m benchmarks.render_replay replay_runs\checkpoint-40\checkpoint-40-seed-42.json --output replay_runs\checkpoint-40\checkpoint-40-seed-42.mp4 --fps 2 --json
+python -m benchmarks.train_progression --episodes 200 --checkpoints 0,20,80,200 --seed 42 --replay-seed 42 --evaluation-episodes 20 --output-dir training_runs\progression-200 --serve-port 4173 --open-dashboard --keep-serving
 python -m benchmarks.stress --rounds 1000 --workers 8
 python -m benchmarks.replay_failure stress_failures\seed-<seed>.json
 ```
 
 Current verified gates:
 
-- unit/integration/differential suite: `192 passed`
+- unit/integration/differential suite: `197 passed`
 - compileall: passing
 - independent read-only engine audit: no unresolved blocker
 - 1,000-round post-hardening invariant stress: passing
@@ -150,6 +154,20 @@ Recorded short learning smoke, 20 fixed evaluation seeds `10000..10019`:
 This is a small deterministic smoke comparison, not statistical proof of a
 strong player. The policies take different actions after the shared initial
 deal, so later states naturally diverge.
+
+Recorded live 200-episode progression, train/replay seed `42`, 20 fixed
+evaluation episodes per checkpoint:
+
+| Episode | Mean score | Relative reward | Finish rate | Replay frames |
+| ---: | ---: | ---: | ---: | ---: |
+| 0 | 147.40 | 0.2399 | 0% | 72 |
+| 20 | 119.65 | 0.5533 | 0% | 83 |
+| 80 | 121.20 | 0.4406 | 0% | 79 |
+| 200 | 101.35 | 0.6865 | 5% | 77 |
+
+All four replays reached a verified terminal state and all four MP4 files were
+encoded as H.264, 1280×720, YUV420p. The 80-episode dip is retained in the
+dashboard; checkpoint progress is not assumed to be monotonic.
 
 ## Checkpoints
 
