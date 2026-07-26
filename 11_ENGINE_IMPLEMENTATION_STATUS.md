@@ -37,6 +37,15 @@ Bu belge kuralların kaynağı değildir. Kurallar için
 - Zero-sum relative terminal rewards
 - Dependency-free single-round and sequential vector RL environments
 - Deterministic RandomAgent evaluation benchmark through the RL API
+- Shared four-seat NumPy actor-critic with variable legal-candidate scoring
+- Stochastic self-play, terminal-return policy/value learning and Adam updates
+- Atomic, pickle-free `.npz` checkpoints with exact RNG/optimizer resume
+- Rotating learned-seat evaluation against three deterministic random agents
+- Deterministic learned-policy replay selector with top-k probabilities and value
+- Versioned spectator replay JSON with SHA-256 and engine replay verification
+- Fixed-seed checkpoint comparison manifests
+- Responsive replay viewer with player/spectator visibility and policy analysis
+- Pillow frame renderer and FFmpeg H.264 MP4 export
 - Deterministik `RandomAgent`
 - Multi-round `MatchEngine`
 - Paralel benchmark/stress ve replayable failure artifacts
@@ -82,13 +91,16 @@ python -m benchmarks.engine --rounds 100 --seed 0 --json
 python -m benchmarks.solver --seeds 100 --measure-memory
 python -m benchmarks.rl --episodes 100 --start-seed 0
 python -m benchmarks.random_baseline --episodes 1000 --start-seed 0 --json
+python -m okey101.training.cli --episodes 40 --seed 0 --checkpoint training_runs\checkpoint-40.npz --evaluate 20 --json
+python -m benchmarks.replay --model-checkpoint training_runs\checkpoint-40.npz --seeds 42 --output-dir replay_runs\checkpoint-40 --top-candidates 5 --json
+python -m benchmarks.render_replay replay_runs\checkpoint-40\checkpoint-40-seed-42.json --output replay_runs\checkpoint-40\checkpoint-40-seed-42.mp4 --fps 2 --json
 python -m benchmarks.stress --rounds 1000 --workers 8
 python -m benchmarks.replay_failure stress_failures\seed-<seed>.json
 ```
 
 Current verified gates:
 
-- unit/integration/differential suite: `175 passed`
+- unit/integration/differential suite: `192 passed`
 - compileall: passing
 - independent read-only engine audit: no unresolved blocker
 - 1,000-round post-hardening invariant stress: passing
@@ -124,6 +136,21 @@ Recorded 1,000-episode RandomAgent baseline, seeds `0..999`:
 - terminal reasons: 954 stock, 44 normal, 1 same-turn, 1 all-pairs
 - penalties/game: deliberately unavailable without post-terminal diagnostic state
 
+Recorded short learning smoke, 20 fixed evaluation seeds `10000..10019`:
+
+- untrained mean relative reward: `-1.1479`
+- checkpoint-40 mean relative reward: `0.2762`
+- untrained mean score: `275.80`
+- checkpoint-40 mean score: `136.95` (lower is better)
+- untrained real-Okey discards: `2/109`
+- checkpoint-40 real-Okey discards: `0/111`
+- untrained playable discards: `17/109`
+- checkpoint-40 playable discards: `2/111`
+
+This is a small deterministic smoke comparison, not statistical proof of a
+strong player. The policies take different actions after the shared initial
+deal, so later states naturally diverge.
+
 ## Checkpoints
 
 ```text
@@ -142,7 +169,10 @@ a0bcdb9 refactor(solver): extract canonical candidate generation
 - Candidate IDs are deliberately state-local; stale catalogs cannot be reused.
 - `VectorRoundEnv` is a sequential batching API, not yet a multiprocessing backend.
 - Encoder V1 targets single-round training and omits match completed-round context.
-- Neural policy, trainer, checkpointing and self-play league have not started.
+- The current learner is a compact NumPy actor-critic, not PPO.
+- A long-running self-play league, opponent pool and promotion gate are not yet built.
+- The recorded 40-episode result is a pipeline/learning smoke, not a strength claim.
+- MP4 export requires a system FFmpeg binary; Pillow is available via the `video` extra.
 - Candidate V1 uses 465-float rows and preserves per-group Okey assignments.
 - The 2,889-candidate outlier takes about 350 ms and 23.64 MB peak to encode.
 - Color canonicalization is deferred until after the first RL environment baseline.
@@ -154,10 +184,10 @@ failure. The dependency-free RL interface baseline is also complete.
 
 Next:
 
-1. hierarchical or streaming scorer for large opening candidate sets
-2. framework adapter and bucketed/batched inference boundary
-3. small policy/value self-play baseline
-4. checkpoint/resume and evaluation league
+1. longer fixed-seed experiments with confidence intervals
+2. checkpoint opponent pool and promotion gate
+3. hierarchical or streaming scorer for large opening candidate sets
+4. batched inference and multiprocessing self-play workers
 
 The observed maximum of `2,889` legal candidates makes a fixed-size flat
 categorical head unattractive. Do not silently truncate legal actions; use
