@@ -1,6 +1,6 @@
 # Engine Implementation Status
 
-Son güncelleme: 2026-07-26
+Son güncelleme: 2026-07-27
 
 Bu belge kuralların kaynağı değildir. Kurallar için
 `02_RULES_SPEC.md`, kesin/açık kararlar için
@@ -45,6 +45,7 @@ Bu belge kuralların kaynağı değildir. Kurallar için
 - Versioned spectator replay JSON with SHA-256 and engine replay verification
 - Fixed-seed checkpoint comparison manifests
 - Responsive replay viewer with player/spectator visibility and policy analysis
+- Display-only seri/per/çift ıstaka gruplama ve oyuncu bazlı atış geçmişi
 - Pillow frame renderer and FFmpeg H.264 MP4 export
 - Episode-by-episode live training dashboard fed by atomic status snapshots
 - One-command progression runs with automatic checkpoint evaluation, replay,
@@ -94,17 +95,17 @@ python -m benchmarks.engine --rounds 100 --seed 0 --json
 python -m benchmarks.solver --seeds 100 --measure-memory
 python -m benchmarks.rl --episodes 100 --start-seed 0
 python -m benchmarks.random_baseline --episodes 1000 --start-seed 0 --json
-python -m okey101.training.cli --episodes 40 --seed 0 --checkpoint training_runs\checkpoint-40.npz --evaluate 20 --json
-python -m benchmarks.replay --model-checkpoint training_runs\checkpoint-40.npz --seeds 42 --output-dir replay_runs\checkpoint-40 --top-candidates 5 --json
-python -m benchmarks.render_replay replay_runs\checkpoint-40\checkpoint-40-seed-42.json --output replay_runs\checkpoint-40\checkpoint-40-seed-42.mp4 --fps 2 --json
-python -m benchmarks.train_progression --episodes 200 --checkpoints 0,20,80,200 --seed 42 --replay-seed 42 --evaluation-episodes 20 --output-dir training_runs\progression-200 --serve-port 4173 --open-dashboard --keep-serving
+python -m okey101.training.cli --episodes 40 --seed 0 --checkpoint artifacts\training\checkpoint-40.npz --evaluate 20 --json
+python -m benchmarks.replay --model-checkpoint artifacts\training\checkpoint-40.npz --seeds 42 --output-dir artifacts\replays\checkpoint-40 --top-candidates 5 --json
+python -m benchmarks.render_replay artifacts\replays\checkpoint-40\checkpoint-40-seed-42.json --output artifacts\replays\checkpoint-40\checkpoint-40-seed-42.mp4 --fps 2 --json
+python -m benchmarks.train_progression --episodes 200 --checkpoints 0,20,80,200 --seed 42 --replay-seed 42 --evaluation-episodes 20 --output-dir artifacts\training\progression-200 --serve-port 4173 --open-dashboard --keep-serving
 python -m benchmarks.stress --rounds 1000 --workers 8
-python -m benchmarks.replay_failure stress_failures\seed-<seed>.json
+python -m benchmarks.replay_failure artifacts\stress-failures\seed-<seed>.json
 ```
 
 Current verified gates:
 
-- unit/integration/differential suite: `197 passed`
+- unit/integration/differential suite: `198 passed`
 - compileall: passing
 - independent read-only engine audit: no unresolved blocker
 - 1,000-round post-hardening invariant stress: passing
@@ -179,6 +180,11 @@ a0bcdb9 refactor(solver): extract canonical candidate generation
 6773bde feat(engine): add verified match snapshots
 9461fee feat(rl): add dependency-free environment baseline
 4a68f54 feat(rl): add ID-free candidate policy inputs
+6519ac3 feat(ai): add numpy self-play and verified replays
+7d92582 feat(viewer): add replay studio and video export
+e22268f feat(training): add live checkpoint progression runs
+ead5282 feat(viewer): add live self-play training dashboard
+da30152 feat(viewer): clarify racks and discard history
 ```
 
 ## Known limitations

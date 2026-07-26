@@ -1,5 +1,9 @@
 # 101 Okey Self-Play AI — Start Here
 
+> Kurulum, eğitim ve replay kullanımı için kökteki
+> [`README.md`](../README.md) dosyasına bakın. Bu belge teknik tasarımın
+> başlangıç noktasıdır.
+
 ## Projenin ana hedefi
 
 Bu projenin amacı, **101 Okey'i kendi kendine oynayarak öğrenen bir yapay zekâ** geliştirmektir.

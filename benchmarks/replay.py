@@ -165,7 +165,11 @@ def _parse_seeds(raw: str) -> tuple[int, ...]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--seeds", type=_parse_seeds, default=(0,))
-    parser.add_argument("--output-dir", type=Path, default=Path("replay_runs/random"))
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("artifacts/replays/random"),
+    )
     parser.add_argument("--model-checkpoint", type=Path)
     parser.add_argument("--top-candidates", type=int, default=5)
     parser.add_argument("--checkpoint-id")

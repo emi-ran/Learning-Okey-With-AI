@@ -193,7 +193,10 @@ def run_stress(
     if workers < 1:
         raise ValueError("workers must be positive")
     workers = min(workers, rounds)
-    failure_directory = failure_directory or _PROJECT_ROOT / "stress_failures"
+    failure_directory = (
+        failure_directory
+        or _PROJECT_ROOT / "artifacts" / "stress-failures"
+    )
     started = perf_counter()
     work = _chunks(rounds, workers, start_seed)
 

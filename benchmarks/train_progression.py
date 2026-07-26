@@ -394,7 +394,7 @@ class _QuietHandler(SimpleHTTPRequestHandler):
         request_path = urlsplit(self.path).path
         if not (
             request_path.startswith("/viewer/")
-            or request_path.startswith("/training_runs/")
+            or request_path.startswith("/artifacts/training/")
         ):
             self.send_error(404)
             return None
@@ -426,7 +426,7 @@ def main() -> None:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("training_runs/live-200"),
+        default=Path("artifacts/training/live-200"),
     )
     parser.add_argument("--top-candidates", type=int, default=5)
     parser.add_argument("--fps", type=float, default=2.0)

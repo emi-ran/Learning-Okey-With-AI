@@ -42,7 +42,7 @@ def test_progression_publishes_checkpoints_replays_and_history(
         "_REPOSITORY_ROOT",
         tmp_path,
     )
-    output_dir = tmp_path / "training_runs" / "test-live"
+    output_dir = tmp_path / "artifacts" / "training" / "test-live"
 
     result = train_progression.run_progression(
         episodes=2,

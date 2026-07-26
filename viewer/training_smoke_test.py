@@ -14,12 +14,12 @@ def main() -> None:
     parser.add_argument("--base-url", default="http://127.0.0.1:4173")
     parser.add_argument(
         "--status",
-        default="/training_runs/live-smoke-2/status.json",
+        default="/artifacts/training/live-smoke-2/status.json",
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("viewer_artifacts/training"),
+        default=Path("artifacts/viewer/training"),
     )
     parser.add_argument("--expected-episodes", type=int, default=2)
     parser.add_argument("--expected-checkpoints", type=int, default=3)

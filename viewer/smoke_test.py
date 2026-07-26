@@ -28,12 +28,14 @@ def main() -> None:
     parser.add_argument(
         "--replay",
         type=Path,
-        default=Path("replay_runs/random-0/random-0-seed-42.json"),
+        default=Path(
+            "artifacts/replays/random-0/random-0-seed-42.json"
+        ),
     )
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("viewer_artifacts"),
+        default=Path("artifacts/viewer"),
     )
     args = parser.parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)

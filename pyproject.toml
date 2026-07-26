@@ -6,6 +6,7 @@ build-backend = "setuptools.build_meta"
 name = "okey101"
 version = "0.1.0"
 description = "Deterministic 101 Okey engine and self-play environment"
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["numpy>=1.26"]
 

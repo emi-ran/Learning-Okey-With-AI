@@ -1,5 +1,6 @@
 const params = new URLSearchParams(window.location.search);
-const statusUrl = params.get("status") ?? "/training_runs/live-200/status.json";
+const statusUrl = params.get("status")
+  ?? "/artifacts/training/live-200/status.json";
 const phaseLabels = {
   starting: "Trainer hazırlanıyor",
   training: "Self-play devam ediyor",

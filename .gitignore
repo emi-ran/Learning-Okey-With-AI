@@ -6,6 +6,7 @@ htmlcov/
 build/
 dist/
 *.egg-info/
+artifacts/
 stress_failures/
 stress_runs/
 training_runs/
