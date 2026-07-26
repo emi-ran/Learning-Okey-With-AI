@@ -1,10 +1,26 @@
 from __future__ import annotations
 
+from dataclasses import fields, is_dataclass
+
 import pytest
 
 from okey101.engine.actions import Discard
 from okey101.rl.env import InvalidEnvironmentAction, SingleRoundEnv
 from okey101.rl.vector_env import VectorRoundEnv
+
+
+def _contains_seed_field(value: object) -> bool:
+    if is_dataclass(value):
+        for field in fields(value):
+            if field.name in {"seed", "episode_seed"}:
+                return True
+            if _contains_seed_field(getattr(value, field.name)):
+                return True
+    elif isinstance(value, (tuple, list)):
+        return any(_contains_seed_field(item) for item in value)
+    elif isinstance(value, dict):
+        return any(_contains_seed_field(item) for item in value.values())
+    return False
 
 
 def test_vector_reset_is_deterministic_and_matches_standalone_envs() -> None:
@@ -18,6 +34,7 @@ def test_vector_reset_is_deterministic_and_matches_standalone_envs() -> None:
     assert first.episode_seeds == second.episode_seeds
     assert first_decisions == second_decisions
     assert len(set(first.episode_seeds)) == 3
+    assert not _contains_seed_field(first_decisions)
 
     standalone = tuple(
         SingleRoundEnv().reset(seed, starting_player=starter)
@@ -98,8 +115,8 @@ def test_reset_at_preserves_other_slots_and_generated_seed_is_exposed() -> None:
 
     replacement = env.reset_at(0)
 
-    assert isinstance(replacement.episode_seed, int)
-    assert env.episode_seeds[0] == replacement.episode_seed
+    assert isinstance(env.episode_seeds[0], int)
+    assert not hasattr(replacement, "episode_seed")
     assert env.current_decisions[1:] == before[1:]
 
 

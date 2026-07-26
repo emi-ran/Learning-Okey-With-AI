@@ -4,11 +4,22 @@ from dataclasses import replace
 
 import pytest
 
+from okey101.engine.actions import Discard
 from okey101.engine.config import GameConfig, ScoringConfig
+from okey101.engine.melds import build_meld
 from okey101.engine.penalties import calculate_discard_penalty
 from okey101.engine.player import OpenedMode, PlayerState
 from okey101.engine.scoring import calculate_round_scores, score_round
-from okey101.engine.state import GameState, TerminalReason, TurnPhase
+from okey101.engine.state import (
+    AttachmentUsage,
+    EventType,
+    GameState,
+    TerminalReason,
+    TurnContext,
+    TurnPhase,
+)
+from okey101.engine.table import AttachmentSide, TableMeld, TableState
+from okey101.engine.transition import apply_action
 from okey101.engine.tiles import Color, PhysicalTile, TileKind, TileValue
 
 
@@ -234,3 +245,52 @@ def test_discard_penalty_checks_finish_before_okey_and_playability() -> None:
         is_playable=True,
         config=config,
     ) == 41
+
+
+def test_transition_uses_nondefault_attachment_limit_for_discard_penalty() -> None:
+    indicator = normal(1000, Color.RED, 4)
+    blue_five = normal(20, Color.BLUE, 5)
+    ordinary = normal(21, Color.BLACK, 13)
+    table_meld = build_meld(
+        (
+            normal(10, Color.BLUE, 2),
+            normal(12, Color.BLUE, 3),
+            normal(14, Color.BLUE, 4),
+        ),
+        TileValue(Color.RED, 5),
+    )
+    state = GameState(
+        round_id=1,
+        turn_number=3,
+        current_player=0,
+        starting_player=0,
+        indicator=indicator,
+        okey_value=TileValue(Color.RED, 5),
+        stock=(normal(30, Color.YELLOW, 9),),
+        discard_pile=(),
+        players=(
+            PlayerState(
+                hand=(blue_five, ordinary),
+                opened_mode=OpenedMode.SERIES,
+            ),
+            PlayerState(),
+            PlayerState(),
+            PlayerState(),
+        ),
+        table=TableState(
+            melds=(TableMeld(7, table_meld),),
+            next_meld_id=8,
+        ),
+        phase=TurnPhase.DISCARD,
+        turn_context=TurnContext(
+            attachment_usage=(
+                AttachmentUsage(7, AttachmentSide.RIGHT, 1),
+            ),
+        ),
+    )
+    config = GameConfig(max_contiguous_attach=1)
+
+    updated, events = apply_action(state, Discard(blue_five.id), config)
+
+    assert updated.players[0].immediate_penalty == 0
+    assert all(event.type is not EventType.PENALTY for event in events)

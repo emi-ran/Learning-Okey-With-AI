@@ -27,3 +27,5 @@ def test_rl_benchmark_smoke_reports_candidate_and_encoder_metrics() -> None:
     assert result.candidate_count_max >= result.candidate_count_p95
     assert result.observation_encode_median_ms >= 0
     assert result.action_catalog_median_ms >= 0
+    assert result.model_input_median_ms >= 0
+    assert result.model_input_max_ms >= result.model_input_p95_ms

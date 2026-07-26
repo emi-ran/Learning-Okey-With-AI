@@ -15,7 +15,7 @@ from .actions import (
     ReplaceJoker,
     TakePreviousDiscard,
 )
-from .config import RulesConfig, ScoringConfig
+from .config import RulesConfig
 from .joker import is_real_okey
 from .melds import Meld, MeldKind, MeldTile, validate_meld
 from .pairs import Pair, validate_pair
@@ -573,14 +573,11 @@ def _discard(
     if not is_final:
         from .penalties import calculate_discard_penalty
 
-        scoring_config = getattr(config, "scoring", None)
-        if scoring_config is None:
-            scoring_config = ScoringConfig()
         penalty = calculate_discard_penalty(
             state,
             discarded,
             is_final=False,
-            config=scoring_config,
+            config=config,
         )
         if penalty:
             player = player.add_immediate_penalty(penalty)

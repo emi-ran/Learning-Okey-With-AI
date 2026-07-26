@@ -30,6 +30,20 @@ def _contains_instance(value: object, forbidden: tuple[type[object], ...]) -> bo
     return False
 
 
+def _contains_field_name(value: object, forbidden: frozenset[str]) -> bool:
+    if is_dataclass(value):
+        for field in fields(value):
+            if field.name in forbidden:
+                return True
+            if _contains_field_name(getattr(value, field.name), forbidden):
+                return True
+    elif isinstance(value, (tuple, list)):
+        return any(_contains_field_name(item, forbidden) for item in value)
+    elif isinstance(value, dict):
+        return any(_contains_field_name(item, forbidden) for item in value.values())
+    return False
+
+
 def _play_by_candidate_ordinal(
     env: SingleRoundEnv,
     *,
@@ -78,10 +92,12 @@ def test_same_seed_and_candidate_policy_reproduce_full_episode() -> None:
 def test_generated_episode_seed_is_exposed_and_replays_initial_decision() -> None:
     env = SingleRoundEnv()
     initial = env.reset()
+    episode_seed = env.episode_seed
 
-    assert isinstance(initial.episode_seed, int)
-    assert env.episode_seed == initial.episode_seed
-    assert SingleRoundEnv().reset(initial.episode_seed) == initial
+    assert isinstance(episode_seed, int)
+    assert not hasattr(initial, "episode_seed")
+    assert not _contains_field_name(initial, frozenset({"seed", "episode_seed"}))
+    assert SingleRoundEnv().reset(episode_seed) == initial
 
 
 def test_policy_contract_has_zero_intermediate_reward_and_no_raw_state() -> None:
@@ -140,11 +156,6 @@ def test_random_seed_sample_has_no_nonterminal_legal_action_dead_end() -> None:
         )
 
 
-def test_single_round_environment_rejects_match_config_and_bad_rewards() -> None:
+def test_single_round_environment_rejects_match_config() -> None:
     with pytest.raises(ValueError, match=r"rounds=1"):
         SingleRoundEnv(GameConfig(rounds=2))
-
-    env = SingleRoundEnv(reward_fn=lambda _scores: (0.0,))
-    env.reset(seed=3)
-    with pytest.raises(ValueError, match="reward count"):
-        _play_by_candidate_ordinal(env)

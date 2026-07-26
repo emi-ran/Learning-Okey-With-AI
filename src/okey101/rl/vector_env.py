@@ -9,7 +9,6 @@ from okey101.engine.actions import Action
 from okey101.engine.config import GameConfig
 
 from .env import Decision, SingleRoundEnv, StepResult, _validated_seed
-from .rewards import RewardFn, relative_terminal_rewards
 
 
 class VectorRoundEnv:
@@ -19,8 +18,6 @@ class VectorRoundEnv:
         self,
         num_envs: int,
         config: GameConfig | None = None,
-        *,
-        reward_fn: RewardFn = relative_terminal_rewards,
     ) -> None:
         if isinstance(num_envs, bool) or not isinstance(num_envs, int):
             raise TypeError("num_envs must be an integer")
@@ -30,7 +27,7 @@ class VectorRoundEnv:
         self.num_envs = num_envs
         self.config = config or GameConfig()
         self._envs = tuple(
-            SingleRoundEnv(self.config, reward_fn=reward_fn)
+            SingleRoundEnv(self.config)
             for _ in range(num_envs)
         )
         self._base_seed: int | None = None

@@ -12,7 +12,7 @@ from okey101.engine.round import RoundEngine
 from okey101.engine.state import TerminalReason
 
 from .observation import PlayerObservation
-from .rewards import RewardFn, relative_terminal_rewards
+from .rewards import relative_terminal_rewards
 
 
 class InvalidEnvironmentAction(ValueError):
@@ -21,12 +21,11 @@ class InvalidEnvironmentAction(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Decision:
-    """The complete policy-facing input for one engine decision."""
+    """Runner-facing envelope containing one safe observation and candidates."""
 
     seat: int
     observation: PlayerObservation
     legal_actions: tuple[Action, ...]
-    episode_seed: int
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,16 +54,11 @@ class SingleRoundEnv:
     def __init__(
         self,
         config: GameConfig | None = None,
-        *,
-        reward_fn: RewardFn = relative_terminal_rewards,
     ) -> None:
         self.config = config or GameConfig()
         if self.config.rounds != 1:
             raise ValueError("SingleRoundEnv requires GameConfig(rounds=1)")
-        if not callable(reward_fn):
-            raise TypeError("reward_fn must be callable")
 
-        self._reward_fn = reward_fn
         self._engine = RoundEngine(self.config)
         self._episode_seed: int | None = None
         self._decision: Decision | None = None
@@ -100,7 +94,6 @@ class SingleRoundEnv:
             seat=seat,
             observation=self._engine.get_observation(seat),
             legal_actions=actions,
-            episode_seed=self._episode_seed,
         )
 
     def reset(
@@ -143,17 +136,11 @@ class SingleRoundEnv:
             )
 
     def _terminal_rewards(self, scores: tuple[int, ...]) -> tuple[float, ...]:
-        raw_rewards = self._reward_fn(scores)
-        try:
-            rewards = tuple(float(reward) for reward in raw_rewards)
-        except (TypeError, ValueError) as error:
-            raise ValueError("reward_fn must return numeric rewards") from error
-        if len(rewards) != self.num_players:
-            raise ValueError(
-                "reward_fn returned a reward count that does not match player_count"
-            )
-        if not all(isfinite(reward) for reward in rewards):
-            raise ValueError("reward_fn returned a non-finite reward")
+        rewards = relative_terminal_rewards(scores)
+        if len(rewards) != self.num_players or not all(
+            isfinite(reward) for reward in rewards
+        ):
+            raise RuntimeError("Built-in terminal reward calculation is invalid")
         return rewards
 
     def step(self, action: Action) -> StepResult:

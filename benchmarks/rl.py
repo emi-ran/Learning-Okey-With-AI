@@ -19,6 +19,7 @@ from okey101.engine.config import GameConfig
 from okey101.rl.action_codec import catalog_from_actions
 from okey101.rl.encoder import encode_observation
 from okey101.rl.env import SingleRoundEnv
+from okey101.rl.policy import prepare_model_input
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +36,9 @@ class RlBenchmarkResult:
     observation_encode_p95_ms: float
     action_catalog_median_ms: float
     action_catalog_p95_ms: float
+    model_input_median_ms: float
+    model_input_p95_ms: float
+    model_input_max_ms: float
 
 
 def _p95(values: list[float] | list[int]) -> float | int:
@@ -58,6 +62,7 @@ def run_rl_benchmark(
     candidate_counts: list[int] = []
     observation_times: list[float] = []
     catalog_times: list[float] = []
+    model_input_times: list[float] = []
     action_count = 0
     started = perf_counter()
 
@@ -72,6 +77,12 @@ def run_rl_benchmark(
             catalog = catalog_from_actions(decision.legal_actions)
             catalog_times.append((perf_counter() - catalog_started) * 1_000)
             candidate_counts.append(len(catalog))
+
+            model_started = perf_counter()
+            model_input = prepare_model_input(decision, config)
+            model_input_times.append((perf_counter() - model_started) * 1_000)
+            if sum(model_input.action_mask) != len(catalog):
+                raise RuntimeError("model input lost legal action candidates")
 
             candidate_id = (
                 episode_step * 7 + decision.seat
@@ -101,6 +112,9 @@ def run_rl_benchmark(
         observation_encode_p95_ms=float(_p95(observation_times)),
         action_catalog_median_ms=median(catalog_times),
         action_catalog_p95_ms=float(_p95(catalog_times)),
+        model_input_median_ms=median(model_input_times),
+        model_input_p95_ms=float(_p95(model_input_times)),
+        model_input_max_ms=max(model_input_times),
     )
 
 
