@@ -6,7 +6,8 @@ from dataclasses import dataclass
 
 from okey101.engine.joker import is_real_okey
 from okey101.engine.player import OpenedMode
-from okey101.engine.state import GameState, TurnPhase
+from okey101.engine.state import DrawSource, GameState, TurnPhase
+from okey101.engine.table import AttachmentSide
 from okey101.engine.tiles import Color, PhysicalTile, TileKind, TileValue
 
 _COLORS = tuple(Color)
@@ -55,11 +56,21 @@ class VisibleDiscard:
 
 
 @dataclass(frozen=True, slots=True)
+class VisibleAttachmentUsage:
+    """A public per-turn attachment limit counter for one table meld."""
+
+    meld_id: int
+    side: AttachmentSide
+    count: int
+
+
+@dataclass(frozen=True, slots=True)
 class PublicPlayerStatus:
     """Public per-seat information in perspective-relative seat order."""
 
     relative_seat: int
     opened_mode: OpenedMode
+    hand_count: int
     score: int
     immediate_penalty: int
 
@@ -68,9 +79,17 @@ class PublicPlayerStatus:
 class PlayerObservation:
     """Everything a real player may observe, and no hidden tile locations."""
 
+    round_id: int
     current_player_relative: int
+    starting_player_relative: int
     turn_number: int
     phase: TurnPhase
+    draw_source: DrawSource | None
+    must_use_taken_discard: bool
+    taken_discard: VisibleTile | None
+    opened_this_turn: bool
+    stock_exhausted_after_draw: bool
+    attachment_usage: tuple[VisibleAttachmentUsage, ...]
     own_normal_counts: tuple[int, ...]
     own_fake_okey_count: int
     own_tile_ids: tuple[int, ...]
@@ -130,6 +149,7 @@ def get_observation(state: GameState, player_id: int) -> PlayerObservation:
         PublicPlayerStatus(
             relative_seat=relative_seat,
             opened_mode=state.players[absolute_seat].opened_mode,
+            hand_count=len(state.players[absolute_seat].hand),
             score=state.players[absolute_seat].score,
             immediate_penalty=state.players[absolute_seat].immediate_penalty,
         )
@@ -166,11 +186,34 @@ def get_observation(state: GameState, player_id: int) -> PlayerObservation:
         )
         for pair in state.table.pairs
     )
+    taken_discard = next(
+        (
+            _visible_tile(record.tile, state.okey_value)
+            for record in reversed(state.discard_history)
+            if record.tile.id == state.turn_context.taken_discard_tile_id
+        ),
+        None,
+    )
 
     return PlayerObservation(
+        round_id=state.round_id,
         current_player_relative=(state.current_player - player_id) % player_count,
+        starting_player_relative=(state.starting_player - player_id) % player_count,
         turn_number=state.turn_number,
         phase=state.phase,
+        draw_source=state.turn_context.draw_source,
+        must_use_taken_discard=state.turn_context.must_use_taken_discard,
+        taken_discard=taken_discard,
+        opened_this_turn=state.turn_context.opened_this_turn,
+        stock_exhausted_after_draw=state.turn_context.stock_exhausted_after_draw,
+        attachment_usage=tuple(
+            VisibleAttachmentUsage(
+                meld_id=usage.meld_id,
+                side=usage.side,
+                count=usage.count,
+            )
+            for usage in state.turn_context.attachment_usage
+        ),
         own_normal_counts=normal_counts,
         own_fake_okey_count=fake_okey_count,
         own_tile_ids=tuple(sorted(tile.id for tile in own_hand)),
