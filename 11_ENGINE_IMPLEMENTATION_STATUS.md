@@ -133,6 +133,7 @@ a0bcdb9 refactor(solver): extract canonical candidate generation
 72a20cb fix(engine): harden tile identity and optimize legal search
 6773bde feat(engine): add verified match snapshots
 9461fee feat(rl): add dependency-free environment baseline
+4a68f54 feat(rl): add ID-free candidate policy inputs
 ```
 
 ## Known limitations
