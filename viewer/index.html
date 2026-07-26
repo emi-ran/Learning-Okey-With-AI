@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="tr">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      name="description"
+      content="AI Okey checkpoint gelişimini sabit eller ve deterministik replay'lerle izleyin."
+    />
+    <title>AI Okey — Öğrenme Masası</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <div class="grain" aria-hidden="true"></div>
+    <main class="app-shell">
+      <header class="broadcast-bar">
+        <div class="brand-lockup">
+          <div class="brand-mark" aria-hidden="true">
+            <span>1</span><span>0</span><span>1</span>
+          </div>
+          <div>
+            <p class="eyebrow">SELF-PLAY LABORATUVARI</p>
+            <h1>Öğrenme Masası</h1>
+          </div>
+        </div>
+
+        <div class="broadcast-meta" aria-label="Replay bilgileri">
+          <div>
+            <span class="meta-label">CHECKPOINT</span>
+            <strong id="checkpointLabel">BAŞLANGIÇ</strong>
+          </div>
+          <div>
+            <span class="meta-label">EĞİTİM ADIMI</span>
+            <strong id="trainingStep">0</strong>
+          </div>
+          <div>
+            <span class="meta-label">SEED</span>
+            <strong id="seedLabel">—</strong>
+          </div>
+          <div class="live-pill">
+            <span class="live-dot" aria-hidden="true"></span>
+            <span id="replayStatus">DEMO</span>
+          </div>
+        </div>
+
+        <div class="header-actions">
+          <label class="file-button" for="replayFile">
+            Replay aç
+            <input id="replayFile" type="file" accept=".json,application/json" />
+          </label>
+          <button id="spectatorToggle" class="icon-button" type="button" aria-pressed="true">
+            <span aria-hidden="true">◉</span>
+            Seyirci
+          </button>
+        </div>
+      </header>
+
+      <section class="stage-grid">
+        <section class="table-stage" aria-label="101 Okey masası">
+          <div class="stage-heading">
+            <div>
+              <p class="eyebrow">SABİT DEĞERLENDİRME ELİ</p>
+              <h2 id="episodeTitle">Model gelişim replay’i</h2>
+            </div>
+            <div class="turn-stamp">
+              <span>EL</span>
+              <strong id="roundLabel">01</strong>
+              <i></i>
+              <span>TUR</span>
+              <strong id="turnLabel">01</strong>
+            </div>
+          </div>
+
+          <div id="okeyTable" class="okey-table">
+            <div class="table-stitch" aria-hidden="true"></div>
+            <div class="seat seat-north" data-seat="2"></div>
+            <div class="seat seat-east" data-seat="3"></div>
+            <div class="seat seat-south" data-seat="0"></div>
+            <div class="seat seat-west" data-seat="1"></div>
+
+            <div class="table-center">
+              <div class="round-context">
+                <div class="context-tile">
+                  <span>GÖSTERGE</span>
+                  <div id="indicatorTile"></div>
+                </div>
+                <div class="stock-stack" aria-label="Ortadaki taş sayısı">
+                  <i></i><i></i><i></i>
+                  <strong id="stockCount">—</strong>
+                  <span>ORTA</span>
+                </div>
+                <div class="context-tile">
+                  <span>SON TAŞ</span>
+                  <div id="discardTile"></div>
+                </div>
+              </div>
+
+              <div class="table-layout">
+                <section>
+                  <div class="section-label">
+                    <span>MASADAKİ PERLER</span>
+                    <b id="meldCount">0</b>
+                  </div>
+                  <div id="tableMelds" class="meld-grid empty-state">
+                    Henüz per açılmadı
+                  </div>
+                </section>
+                <section class="pair-section">
+                  <div class="section-label">
+                    <span>ÇİFT ALANI</span>
+                    <b id="pairCount">0</b>
+                  </div>
+                  <div id="pairArea" class="pair-grid empty-state">—</div>
+                </section>
+              </div>
+            </div>
+          </div>
+
+          <div class="action-ribbon">
+            <div class="action-index" id="actionIndex">000</div>
+            <div>
+              <p id="actionActor">Sistem</p>
+              <h3 id="actionNarration">Replay yükleniyor…</h3>
+            </div>
+            <div id="actionPenalty" class="penalty-chip hidden">+101 CEZA</div>
+          </div>
+
+          <div class="transport">
+            <button id="previousFrame" type="button" aria-label="Önceki hamle">←</button>
+            <button id="playPause" class="play-button" type="button" aria-label="Oynat">
+              <span id="playIcon">▶</span>
+            </button>
+            <button id="nextFrame" type="button" aria-label="Sonraki hamle">→</button>
+            <div class="timeline-wrap">
+              <input
+                id="timeline"
+                type="range"
+                min="0"
+                max="0"
+                value="0"
+                aria-label="Replay zaman çizgisi"
+              />
+              <div class="timeline-meta">
+                <span id="frameCounter">1 / 1</span>
+                <span id="phaseLabel">DAĞITIM</span>
+              </div>
+            </div>
+            <label class="speed-control">
+              <span>HIZ</span>
+              <select id="playbackSpeed" aria-label="Oynatma hızı">
+                <option value="1600">0.5×</option>
+                <option value="900" selected>1×</option>
+                <option value="450">2×</option>
+                <option value="220">4×</option>
+              </select>
+            </label>
+          </div>
+        </section>
+
+        <aside class="analysis-rail" aria-label="Model analizi">
+          <section class="rail-card decision-card">
+            <div class="rail-title">
+              <div>
+                <p class="eyebrow">MODEL KARARI</p>
+                <h2>Hamle dağılımı</h2>
+              </div>
+              <div class="value-badge">
+                <span>V(s)</span>
+                <strong id="stateValue">0.00</strong>
+              </div>
+            </div>
+            <div id="candidateList" class="candidate-list"></div>
+          </section>
+
+          <section class="rail-card metric-card">
+            <div class="rail-title">
+              <div>
+                <p class="eyebrow">CHECKPOINT ÖLÇÜMLERİ</p>
+                <h2>Öğrenme izi</h2>
+              </div>
+              <span class="metric-delta" id="metricDelta">SABİT SEED</span>
+            </div>
+            <svg
+              id="metricChart"
+              class="metric-chart"
+              viewBox="0 0 480 150"
+              role="img"
+              aria-label="Checkpoint performans grafiği"
+            ></svg>
+            <div class="metric-grid">
+              <div>
+                <span>OKEY ATMA</span>
+                <strong id="okeyDiscardMetric">—</strong>
+              </div>
+              <div>
+                <span>İŞLEK CEZA</span>
+                <strong id="playablePenaltyMetric">—</strong>
+              </div>
+              <div>
+                <span>BİTİŞ ORANI</span>
+                <strong id="finishRateMetric">—</strong>
+              </div>
+              <div>
+                <span>ORT. SKOR</span>
+                <strong id="averageScoreMetric">—</strong>
+              </div>
+            </div>
+          </section>
+
+          <section class="rail-card event-card">
+            <div class="rail-title">
+              <div>
+                <p class="eyebrow">OLAY AKIŞI</p>
+                <h2>Son hamleler</h2>
+              </div>
+            </div>
+            <ol id="eventLog" class="event-log"></ol>
+          </section>
+
+          <section id="dropZone" class="drop-zone" tabindex="0">
+            <strong>Replay dosyasını buraya bırak</strong>
+            <span>veya üstten JSON seç</span>
+          </section>
+        </aside>
+      </section>
+    </main>
+
+    <template id="tileTemplate">
+      <div class="okey-tile">
+        <span class="tile-number"></span>
+        <i class="tile-mark"></i>
+      </div>
+    </template>
+    <script src="./app.js"></script>
+  </body>
+</html>
