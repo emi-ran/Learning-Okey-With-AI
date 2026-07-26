@@ -1,13 +1,26 @@
 from __future__ import annotations
 
+from copy import deepcopy
 from dataclasses import replace
+import json
 
 import pytest
 
-from okey101.engine.actions import Discard, OpenPairs
+from okey101.agents.random_agent import RandomAgent
+from okey101.engine.actions import (
+    Discard,
+    DrawFromStock,
+    EndTableActions,
+    OpenPairs,
+)
 from okey101.engine.config import GameConfig
 from okey101.engine.joker import is_real_okey
-from okey101.engine.match import MatchEngine, derive_round_seed
+from okey101.engine.match import (
+    MatchEngine,
+    MatchReplayError,
+    derive_round_seed,
+    replay_match_from_seed_and_actions,
+)
 from okey101.engine.pairs import build_pair
 from okey101.engine.player import OpenedMode, PlayerState
 from okey101.engine.state import EventType, TerminalReason, TurnContext, TurnPhase
@@ -66,6 +79,47 @@ def _force_all_pairs_void(match: MatchEngine):
         turn_context=TurnContext(opened_mode_at_start=OpenedMode.NONE),
     )
     return match.step(OpenPairs(tuple(pairs)))
+
+
+def _play_random_match(seed: int = 0) -> MatchEngine:
+    match = MatchEngine(GameConfig(rounds=1))
+    match.reset(seed=seed)
+    agent: RandomAgent[None, object] = RandomAgent(seed=seed)
+    for _ in range(500):
+        if match.is_terminal():
+            return match
+        actions = match.get_legal_actions()
+        assert actions
+        match.step(agent.select_action(None, actions))
+    raise AssertionError("random match did not terminate within 500 actions")
+
+
+def _play_natural_void_round() -> MatchEngine:
+    match = MatchEngine(GameConfig(rounds=1, opening_min_pairs=1))
+    match.reset(seed=1)
+    agent: RandomAgent[None, object] = RandomAgent(seed=1)
+    for _ in range(100):
+        if match.round_records:
+            assert (
+                match.round_records[-1].terminal_reason
+                is TerminalReason.ALL_PLAYERS_OPENED_PAIRS
+            )
+            return match
+        actions = match.get_legal_actions()
+        pair_opening = next(
+            (action for action in actions if isinstance(action, OpenPairs)),
+            None,
+        )
+        end_table = next(
+            (action for action in actions if isinstance(action, EndTableActions)),
+            None,
+        )
+        match.step(
+            pair_opening
+            or end_table
+            or agent.select_action(None, actions)
+        )
+    raise AssertionError("expected deterministic void round was not reached")
 
 
 def test_match_rotates_starting_player_accumulates_scores_and_auto_deals() -> None:
@@ -198,3 +252,143 @@ def test_match_requires_reset_and_round_seed_derivation_validates_inputs() -> No
         derive_round_seed(5, -1)
     with pytest.raises(TypeError, match="integer"):
         derive_round_seed(True, 0)
+
+
+def test_json_snapshot_roundtrip_restores_mid_round_and_continues_identically() -> None:
+    config = GameConfig(rounds=2, progressive_opening=True)
+    original = MatchEngine(config)
+    state = original.reset(seed=901, starting_player=2)
+    original.step(EndTableActions())
+    original.step(Discard(state.current_player_state.hand[0].id))
+
+    payload = json.loads(json.dumps(original.serialize_state()))
+    restored = MatchEngine()
+    loaded = restored.load_state(payload)
+
+    assert loaded == original.current_round
+    assert restored.config == config
+    assert restored.seed == original.seed
+    assert restored.current_round_seed == original.current_round_seed
+    assert restored.action_history == original.action_history
+    assert restored.get_scores() == original.get_scores()
+    assert restored.serialize_state() == payload
+
+    action = DrawFromStock()
+    original_state, original_events = original.step(action)
+    restored_state, restored_events = restored.step(action)
+    assert restored_state == original_state
+    assert restored_events == original_events
+
+
+def test_completed_match_snapshot_restores_records_terminal_state_and_history() -> None:
+    original = _play_random_match(seed=0)
+    payload = json.loads(json.dumps(original.serialize_state()))
+
+    restored = MatchEngine()
+    restored.load_state(payload)
+
+    assert restored.is_terminal()
+    assert restored.current_round == original.current_round
+    assert restored.round_records == original.round_records
+    assert restored.completed_rounds == original.completed_rounds
+    assert restored.rounds_played == original.rounds_played
+    assert restored.action_history == original.action_history
+    assert restored.get_scores() == original.get_scores()
+    assert restored.get_legal_actions() == ()
+
+
+def test_void_round_record_roundtrips_and_preserves_redeal_counter() -> None:
+    original = _play_natural_void_round()
+    payload = json.loads(json.dumps(original.serialize_state()))
+
+    restored = MatchEngine()
+    restored.load_state(payload)
+
+    assert not restored.is_terminal()
+    assert restored.completed_rounds == 0
+    assert restored.rounds_played == 1
+    assert restored.current_round.round_id == 2
+    assert restored.round_records == original.round_records
+    assert restored.round_records[0].scores == (0, 0, 0, 0)
+    assert not restored.round_records[0].counts_toward_match
+    assert restored.serialize_state() == payload
+
+
+def test_match_replay_uses_one_flat_typed_action_sequence_across_rounds() -> None:
+    original = _play_random_match(seed=1)
+    actions = tuple(action for _round_id, action in original.action_history)
+
+    replayed = replay_match_from_seed_and_actions(
+        1,
+        actions,
+        config=original.config,
+        starting_player=0,
+    )
+
+    assert replayed.current_round == original.current_round
+    assert replayed.round_records == original.round_records
+    assert replayed.action_history == original.action_history
+    assert replayed.get_scores() == original.get_scores()
+    assert replayed.event_log == original.event_log
+
+    with pytest.raises(MatchReplayError, match="action 0 in round 1"):
+        replay_match_from_seed_and_actions(3, (DrawFromStock(),))
+
+
+@pytest.mark.parametrize(
+    ("mutation", "path"),
+    (
+        (
+            lambda payload: payload.pop("seed"),
+            r"\$: missing field 'seed'",
+        ),
+        (
+            lambda payload: payload["scores"].__setitem__(0, "bad"),
+            r"\$\.scores\[0\]",
+        ),
+        (
+            lambda payload: payload.__setitem__("current_round_seed", 1),
+            r"\$\.current_round_seed",
+        ),
+        (
+            lambda payload: payload["current_round"]["stock"][0].__setitem__(
+                "id",
+                payload["current_round"]["stock"][1]["id"],
+            ),
+            r"\$\.current_round",
+        ),
+        (
+            lambda payload: payload["action_history"][0].__setitem__(
+                "round_id",
+                99,
+            ),
+            r"\$\.action_history",
+        ),
+    ),
+)
+def test_match_load_rejects_malformed_or_tampered_midround_payloads(
+    mutation,
+    path: str,
+) -> None:
+    match = MatchEngine(GameConfig(rounds=2))
+    state = match.reset(seed=33)
+    match.step(EndTableActions())
+    match.step(Discard(state.current_player_state.hand[0].id))
+    payload = json.loads(json.dumps(match.serialize_state()))
+    mutation(payload)
+
+    with pytest.raises(ValueError, match=path):
+        MatchEngine().load_state(payload)
+
+
+def test_match_load_rejects_tampered_completed_record_metadata() -> None:
+    match = _play_random_match(seed=2)
+    payload = json.loads(json.dumps(match.serialize_state()))
+    tampered = deepcopy(payload)
+    tampered["round_records"][0]["starting_player"] = 3
+
+    with pytest.raises(
+        ValueError,
+        match=r"\$\.round_records\[0\]\.starting_player",
+    ):
+        MatchEngine().load_state(tampered)

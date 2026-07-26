@@ -30,6 +30,10 @@ Agent bu belgeleri aşağıdaki sırayla okumalıdır:
 8. `08_AGENT_WORKFLOW.md`
 9. `09_LOCKED_DECISIONS_AND_OPEN_ITEMS.md`
 
+Güncel implementation ve doğrulama durumu:
+
+- `11_ENGINE_IMPLEMENTATION_STATUS.md`
+
 ---
 
 # Temel tasarım kararı: AI taşları fiziksel olarak dizmeyi öğrenmeyecek

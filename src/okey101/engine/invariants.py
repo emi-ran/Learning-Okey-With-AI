@@ -273,7 +273,11 @@ def find_invariant_violations(
             )
 
     for table_meld in state.table.melds:
-        if not validate_meld(table_meld.meld, state.okey_value):
+        try:
+            valid_meld = validate_meld(table_meld.meld, state.okey_value)
+        except (TypeError, ValueError, IndexError):
+            valid_meld = False
+        if not valid_meld:
             violations.append(
                 InvariantViolation(
                     "INVALID_TABLE_MELD",
@@ -281,7 +285,11 @@ def find_invariant_violations(
                 )
             )
     for pair_index, pair in enumerate(state.table.pairs):
-        if not validate_pair(pair, state.okey_value):
+        try:
+            valid_pair = validate_pair(pair, state.okey_value)
+        except (TypeError, ValueError, IndexError):
+            valid_pair = False
+        if not valid_pair:
             violations.append(
                 InvariantViolation(
                     "INVALID_TABLE_PAIR",

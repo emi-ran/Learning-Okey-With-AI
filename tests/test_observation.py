@@ -40,6 +40,7 @@ def test_observation_excludes_opponent_hands_and_stock_identities() -> None:
     assert observation.own_tile_ids == (1,)
     assert observation.stock_count == 1
     assert not hasattr(observation, "stock")
+    assert not hasattr(observation, "player_id")
     assert not hasattr(observation.player_statuses[1], "hand")
 
 

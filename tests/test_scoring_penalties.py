@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import replace
 
+import pytest
+
 from okey101.engine.config import GameConfig, ScoringConfig
 from okey101.engine.penalties import calculate_discard_penalty
 from okey101.engine.player import OpenedMode, PlayerState
@@ -103,6 +105,39 @@ def test_same_turn_open_finish_is_not_silently_scored_as_elden_finish() -> None:
     )
 
     assert scores == (-202, 202)
+
+
+@pytest.mark.parametrize(
+    ("reason", "winner_score", "opponent_multiplier"),
+    (
+        (TerminalReason.PAIR_FINISH, -202, 2),
+        (TerminalReason.PAIR_OKEY_FINISH, -404, 4),
+    ),
+)
+def test_pair_finish_score_matrix(
+    reason: TerminalReason,
+    winner_score: int,
+    opponent_multiplier: int,
+) -> None:
+    players = (
+        PlayerState(opened_mode=OpenedMode.PAIRS),
+        PlayerState(
+            hand=(normal(30, Color.BLUE, 10),),
+            opened_mode=OpenedMode.SERIES,
+        ),
+        PlayerState(opened_mode=OpenedMode.NONE),
+    )
+
+    scores = calculate_round_scores(
+        terminal_state(players, reason, winner=0),
+        ScoringConfig(),
+    )
+
+    assert scores == (
+        winner_score,
+        10 * opponent_multiplier,
+        202 * opponent_multiplier,
+    )
 
 
 def test_okey_surcharge_multiplier_flags_are_independent() -> None:

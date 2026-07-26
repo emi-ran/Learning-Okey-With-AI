@@ -3,7 +3,13 @@
 from .config import GameConfig, RulesConfig, ScoringConfig
 from .deck import Deck, build_deck
 from .joker import effective_value, is_real_okey, okey_value_for_indicator
-from .match import MatchEngine, RoundRecord, derive_round_seed
+from .match import (
+    MatchEngine,
+    MatchReplayError,
+    RoundRecord,
+    derive_round_seed,
+    replay_match_from_seed_and_actions,
+)
 from .melds import (
     Meld,
     MeldKind,
@@ -31,6 +37,7 @@ __all__ = [
     "MeldKind",
     "MeldTile",
     "MatchEngine",
+    "MatchReplayError",
     "Pair",
     "PhysicalTile",
     "RulesConfig",
@@ -47,6 +54,7 @@ __all__ = [
     "find_meld_assignments",
     "is_real_okey",
     "okey_value_for_indicator",
+    "replay_match_from_seed_and_actions",
     "validate_meld",
     "validate_pair",
 ]

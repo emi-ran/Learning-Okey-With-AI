@@ -627,6 +627,84 @@ def test_joker_replacement_keeps_assignment_and_returns_real_okey_to_hand() -> N
     assert updated.phase is TurnPhase.TABLE_ACTIONS
 
 
+def test_joker_replacement_requires_open_player_and_exact_normal_tile() -> None:
+    okey_value = TileValue(Color.BLUE, 1)
+    real_okey = normal(Color.BLUE, 1)
+    meld = build_meld(
+        (normal(Color.RED, 2), real_okey, normal(Color.RED, 4)),
+        okey_value,
+    )
+    table, (meld_id,) = TableState().add_melds((meld,))
+    exact = normal(Color.RED, 3)
+    unopened = state_for(
+        (exact, normal(Color.BLACK, 13)),
+        table=table,
+        okey_value=okey_value,
+    )
+    with pytest.raises(IllegalAction, match="must open"):
+        apply_action(
+            unopened,
+            ReplaceJoker(meld_id, real_okey.id, exact.id),
+            GameConfig(),
+        )
+
+    wrong = normal(Color.RED, 5)
+    opened = state_for(
+        (wrong, normal(Color.BLACK, 13)),
+        opened_mode=OpenedMode.SERIES,
+        table=table,
+        okey_value=okey_value,
+    )
+    with pytest.raises(IllegalAction, match="does not match"):
+        apply_action(
+            opened,
+            ReplaceJoker(meld_id, real_okey.id, wrong.id),
+            GameConfig(),
+        )
+
+
+def test_recovered_okey_can_be_used_in_a_new_meld_during_same_turn() -> None:
+    okey_value = TileValue(Color.BLUE, 1)
+    real_okey = normal(Color.BLUE, 1)
+    table_meld = build_meld(
+        (normal(Color.RED, 2), real_okey, normal(Color.RED, 4)),
+        okey_value,
+    )
+    table, (meld_id,) = TableState().add_melds((table_meld,))
+    replacement = normal(Color.RED, 3)
+    blue_five = normal(Color.BLUE, 5)
+    blue_six = normal(Color.BLUE, 6)
+    state = state_for(
+        (
+            replacement,
+            blue_five,
+            blue_six,
+            normal(Color.BLACK, 13),
+        ),
+        opened_mode=OpenedMode.SERIES,
+        table=table,
+        okey_value=okey_value,
+    )
+    replaced, _events = apply_action(
+        state,
+        ReplaceJoker(meld_id, real_okey.id, replacement.id),
+        GameConfig(),
+    )
+    new_meld = build_meld(
+        (blue_five, blue_six, real_okey),
+        okey_value,
+    )
+
+    updated, _events = apply_action(
+        replaced,
+        OpenMelds((new_meld,)),
+        GameConfig(),
+    )
+
+    assert real_okey not in updated.current_player_state.hand
+    assert len(updated.table.melds) == 2
+
+
 def test_final_discard_is_required_and_determines_explicit_finish_reason() -> None:
     final_tile = normal(Color.BLACK, 11)
     state = state_for((final_tile,), phase=TurnPhase.DISCARD)

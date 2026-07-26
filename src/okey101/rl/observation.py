@@ -68,7 +68,6 @@ class PublicPlayerStatus:
 class PlayerObservation:
     """Everything a real player may observe, and no hidden tile locations."""
 
-    player_id: int
     current_player_relative: int
     turn_number: int
     phase: TurnPhase
@@ -169,7 +168,6 @@ def get_observation(state: GameState, player_id: int) -> PlayerObservation:
     )
 
     return PlayerObservation(
-        player_id=player_id,
         current_player_relative=(state.current_player - player_id) % player_count,
         turn_number=state.turn_number,
         phase=state.phase,
