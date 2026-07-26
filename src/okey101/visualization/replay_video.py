@@ -143,19 +143,28 @@ def _player_panel(
     mode_text = {"none": "Açmadı", "series": "Seri", "pairs": "Çift"}.get(mode, mode)
     draw.text(
         (x0 + 10, y0 + 7),
-        f"{player['label']} · {mode_text}",
+        str(player["label"]),
         font=_font(15, bold=True),
         fill="#ffffff",
     )
+    score_text = f"Ceza {player['immediate_penalty']}"
+    score_font = _font(13)
+    score_box = draw.textbbox((0, 0), score_text, font=score_font)
     draw.text(
-        (x1 - 145, y0 + 8),
-        f"Ceza {player['immediate_penalty']}",
-        font=_font(13),
+        (x1 - 10 - (score_box[2] - score_box[0]), y0 + 8),
+        score_text,
+        font=score_font,
         fill="#ffd77a",
+    )
+    draw.text(
+        (x0 + 10, y0 + 25),
+        mode_text,
+        font=_font(11, bold=True),
+        fill="#9bd6c4",
     )
     hand = player["hand"]
     assert isinstance(hand, Sequence)
-    _hand_row(draw, hand, (x0 + 10, y0 + 30, x1 - 10, y1 - 8), columns=columns)
+    _hand_row(draw, hand, (x0 + 10, y0 + 40, x1 - 10, y1 - 8), columns=columns)
 
 
 def _table(draw, table: Mapping[str, object], box: tuple[int, int, int, int]) -> None:
@@ -213,6 +222,29 @@ def _table(draw, table: Mapping[str, object], box: tuple[int, int, int, int]) ->
                         cursor_y,
                     )
             cursor_x += 67
+
+
+def _footer_narration(frame: Mapping[str, object]) -> str:
+    terminal = frame["terminal"]
+    assert isinstance(terminal, Mapping)
+    if not terminal["is_terminal"]:
+        return str(frame["narration"])
+    terminal_labels = {
+        "stock_exhausted": "Stok bitti · el sona erdi.",
+        "normal_finish": "Oyuncu eli bitirdi.",
+        "okey_finish": "Okey ile bitiş.",
+        "elden_finish": "Elden bitiş.",
+        "elden_okey_finish": "Elden Okey ile bitiş.",
+        "pair_finish": "Çift açarak bitiş.",
+        "pair_okey_finish": "Çift açıp Okey ile bitiş.",
+        "same_turn_open_finish": "Aynı tur açıp bitiş.",
+        "same_turn_open_okey_finish": "Aynı tur açıp Okey ile bitiş.",
+        "all_players_opened_pairs": "Tüm oyuncular çift açtı · el sona erdi.",
+    }
+    return terminal_labels.get(
+        str(terminal["reason"]),
+        "El sona erdi.",
+    )
 
 
 def render_frame(
@@ -317,7 +349,7 @@ def render_frame(
     draw.rectangle((0, footer_y, width, height), fill="#081f1a")
     draw.text(
         (28, footer_y + 12),
-        str(frame["narration"]),
+        _footer_narration(frame),
         font=_font(20, bold=True),
         fill="#ffffff",
     )

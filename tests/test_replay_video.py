@@ -12,6 +12,7 @@ from PIL import Image
 
 from okey101.replay import record_random_episode
 from okey101.visualization import render_contact_sheet, render_frame_to_path
+from okey101.visualization.replay_video import _footer_narration
 
 
 @pytest.fixture(scope="module")
@@ -38,6 +39,13 @@ def test_contact_sheet_covers_start_middle_and_terminal(
     output = render_contact_sheet(replay, tmp_path / "poster.png")
     with Image.open(output) as image:
         assert image.size == (1440, 270)
+
+
+def test_terminal_footer_reports_round_end_reason(replay) -> None:
+    assert _footer_narration(replay["frames"][1]) == replay["frames"][1]["narration"]
+    assert _footer_narration(replay["frames"][-1]) == (
+        "Stok bitti · el sona erdi."
+    )
 
 
 def test_poster_only_cli_does_not_require_ffmpeg(
