@@ -304,6 +304,7 @@ p {
   position: absolute;
   z-index: 2;
   display: grid;
+  box-sizing: border-box;
   gap: 6px;
   min-width: 160px;
   padding: 8px 10px;
@@ -324,7 +325,7 @@ p {
 .seat-north {
   top: 18px;
   left: 50%;
-  width: min(62%, 660px);
+  width: min(70%, 760px);
   transform: translateX(-50%);
 }
 
@@ -400,13 +401,38 @@ p {
 .rack {
   display: flex;
   flex-wrap: wrap;
-  gap: 2px;
+  align-items: flex-start;
+  gap: 7px;
   min-height: 36px;
+}
+
+.rack-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1px;
+  max-width: 100%;
+  padding-bottom: 2px;
+  border-bottom: 2px solid transparent;
+}
+
+.rack-group-run {
+  border-color: rgba(98, 197, 155, 0.46);
+}
+
+.rack-group-set,
+.rack-group-pair {
+  border-color: rgba(234, 213, 163, 0.4);
+}
+
+.rack-group-okey {
+  padding-left: 5px;
+  border-left: 1px solid rgba(234, 213, 163, 0.45);
 }
 
 .rack.concealed {
   overflow: hidden;
   flex-wrap: nowrap;
+  gap: 2px;
 }
 
 .tile-back {
@@ -432,7 +458,89 @@ p {
   display: flex;
   align-items: end;
   justify-content: center;
-  gap: 30px;
+  gap: clamp(16px, 2.6vw, 34px);
+}
+
+.okey-context {
+  padding-inline: 8px;
+  border-inline: 1px solid rgba(234, 213, 163, 0.16);
+}
+
+.discard-lane {
+  position: absolute;
+  z-index: 3;
+  display: grid;
+  justify-items: center;
+  gap: 4px;
+  padding: 5px 7px;
+  border: 1px solid rgba(234, 213, 163, 0.16);
+  border-radius: 5px;
+  background: rgba(5, 27, 20, 0.72);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.18);
+}
+
+.discard-lane > span {
+  color: rgba(255, 255, 255, 0.48);
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.discard-lane.empty {
+  opacity: 0.34;
+}
+
+.discard-lane.empty .discard-tiles::after {
+  content: "—";
+  color: rgba(255, 255, 255, 0.45);
+  font-family: var(--display);
+}
+
+.discard-tiles {
+  display: flex;
+  gap: 3px;
+  min-height: 32px;
+}
+
+.discard-entry {
+  transition: opacity 180ms ease;
+}
+
+.discard-entry.taken {
+  opacity: 0.35;
+}
+
+.discard-entry.latest .okey-tile {
+  outline: 2px solid var(--brass);
+  outline-offset: 1px;
+}
+
+.discard-lane .okey-tile {
+  width: 22px;
+  height: 32px;
+  font-size: 13px;
+}
+
+.discard-north {
+  top: 126px;
+  right: 24px;
+}
+
+.discard-south {
+  bottom: 128px;
+  left: 50%;
+  transform: translateX(-50%);
+}
+
+.discard-west {
+  top: calc(50% + 130px);
+  left: 24px;
+}
+
+.discard-east {
+  top: calc(50% + 130px);
+  right: 24px;
 }
 
 .context-tile {
@@ -1013,7 +1121,7 @@ p {
   }
 
   .okey-table {
-    min-height: 660px;
+    min-height: 860px;
     border-width: 8px;
     border-radius: 42px;
   }
@@ -1029,8 +1137,9 @@ p {
 
   .seat-west,
   .seat-east {
-    top: 49%;
+    top: 174px;
     width: calc(50% - 22px);
+    transform: none;
   }
 
   .seat-west {
@@ -1042,11 +1151,59 @@ p {
   }
 
   .table-center {
-    inset: 142px 12px 155px;
+    inset: 350px 12px 164px;
   }
 
   .round-context {
-    gap: 14px;
+    gap: 9px;
+  }
+
+  .context-tile {
+    font-size: 7px;
+  }
+
+  .okey-context {
+    padding-inline: 3px;
+  }
+
+  .discard-lane {
+    padding: 3px;
+  }
+
+  .discard-lane > span {
+    display: none;
+  }
+
+  .discard-lane .discard-entry:not(.latest) {
+    display: none;
+  }
+
+  .discard-north {
+    top: 145px;
+    right: auto;
+    left: 50%;
+    transform: translateX(-50%);
+  }
+
+  .discard-south {
+    bottom: 145px;
+  }
+
+  .discard-west {
+    top: 323px;
+    left: 25%;
+    transform: translateX(-50%);
+  }
+
+  .discard-east {
+    top: 323px;
+    right: 25%;
+    transform: translateX(50%);
+  }
+
+  .discard-west .discard-tiles,
+  .discard-east .discard-tiles {
+    display: flex;
   }
 
   .table-layout {
@@ -1061,18 +1218,38 @@ p {
   .rack {
     max-height: 104px;
     overflow: visible;
+    gap: 5px;
   }
 
   .seat-west .rack,
   .seat-east .rack {
-    gap: 1px;
+    gap: 4px;
+    overflow: hidden;
+  }
+
+  .seat-west .seat-heading,
+  .seat-east .seat-heading {
+    display: grid;
+    justify-content: stretch;
+    gap: 2px;
+  }
+
+  .seat-west .seat-stats,
+  .seat-east .seat-stats {
+    justify-content: flex-start;
+    gap: 6px;
+  }
+
+  .seat-west .rack-group,
+  .seat-east .rack-group {
+    gap: 0;
   }
 
   .seat-west .okey-tile,
   .seat-east .okey-tile {
-    width: 16px;
-    height: 26px;
-    font-size: 10px;
+    width: 14px;
+    height: 24px;
+    font-size: 9px;
   }
 
   .okey-tile {

@@ -32,6 +32,12 @@ const MODE_LABELS = {
 };
 
 const COLOR_ORDER = { red: 0, yellow: 1, blue: 2, black: 3 };
+const COLOR_LABELS = {
+  red: "Kırmızı",
+  yellow: "Sarı",
+  blue: "Mavi",
+  black: "Siyah",
+};
 
 const demoReplay = {
   schema_version: 1,
@@ -207,8 +213,109 @@ let spectator = true;
 const byId = (id) => document.getElementById(id);
 
 function tileSort(a, b) {
-  return (COLOR_ORDER[a.color] ?? 9) - (COLOR_ORDER[b.color] ?? 9)
-    || (a.number ?? 99) - (b.number ?? 99);
+  const aDisplay = tileDisplay(a);
+  const bDisplay = tileDisplay(b);
+  return (COLOR_ORDER[aDisplay.color] ?? 9) - (COLOR_ORDER[bDisplay.color] ?? 9)
+    || (aDisplay.number ?? 99) - (bDisplay.number ?? 99)
+    || (a.id ?? 0) - (b.id ?? 0);
+}
+
+function tileDisplay(tile) {
+  const source = tile?.tile ?? tile ?? {};
+  return source.display ?? source.physical ?? source.value ?? source;
+}
+
+function tileKey(tile) {
+  const display = tileDisplay(tile);
+  return `${display.color ?? "?"}:${display.number ?? "?"}`;
+}
+
+function okeyFromIndicator(indicator) {
+  const display = tileDisplay(indicator);
+  if (!display.color || !display.number) return null;
+  return {
+    color: display.color,
+    number: display.number === 13 ? 1 : display.number + 1,
+  };
+}
+
+function groupHand(tiles, openedMode = "none") {
+  const regular = [...tiles].filter((tile) => !tile.is_real_okey && !tile.is_fake_okey);
+  const special = [...tiles].filter((tile) => tile.is_real_okey || tile.is_fake_okey);
+  const groups = [];
+
+  const takePairGroups = () => {
+    const buckets = new Map();
+    regular.forEach((tile) => {
+      const key = tileKey(tile);
+      if (!buckets.has(key)) buckets.set(key, []);
+      buckets.get(key).push(tile);
+    });
+    [...buckets.values()].forEach((bucket) => {
+      while (bucket.length >= 2) {
+        const pair = bucket.splice(0, 2);
+        pair.forEach((tile) => regular.splice(regular.indexOf(tile), 1));
+        groups.push({ kind: "pair", tiles: pair.sort(tileSort) });
+      }
+    });
+  };
+
+  if (openedMode === "pairs") takePairGroups();
+
+  Object.keys(COLOR_ORDER).forEach((color) => {
+    while (true) {
+      const byNumber = new Map();
+      regular
+        .filter((tile) => tileDisplay(tile).color === color)
+        .sort(tileSort)
+        .forEach((tile) => {
+          const number = tileDisplay(tile).number;
+          if (!byNumber.has(number)) byNumber.set(number, []);
+          byNumber.get(number).push(tile);
+        });
+      const numbers = [...byNumber.keys()].sort((a, b) => a - b);
+      let best = [];
+      let current = [];
+      numbers.forEach((number) => {
+        if (!current.length || number === current.at(-1) + 1) current.push(number);
+        else current = [number];
+        if (current.length > best.length) best = [...current];
+      });
+      if (best.length < 3) break;
+      const run = best.map((number) => byNumber.get(number)[0]);
+      run.forEach((tile) => regular.splice(regular.indexOf(tile), 1));
+      groups.push({ kind: "run", tiles: run });
+    }
+  });
+
+  for (let number = 1; number <= 13; number += 1) {
+    while (true) {
+      const uniqueColors = [];
+      Object.keys(COLOR_ORDER).forEach((color) => {
+        const tile = regular.find((item) => {
+          const display = tileDisplay(item);
+          return display.number === number && display.color === color;
+        });
+        if (tile) uniqueColors.push(tile);
+      });
+      if (uniqueColors.length < 3) break;
+      uniqueColors.forEach((tile) => regular.splice(regular.indexOf(tile), 1));
+      groups.push({ kind: "set", tiles: uniqueColors.sort(tileSort) });
+    }
+  }
+
+  if (openedMode !== "pairs") takePairGroups();
+
+  Object.keys(COLOR_ORDER).forEach((color) => {
+    const colorTiles = regular
+      .filter((tile) => tileDisplay(tile).color === color)
+      .sort(tileSort);
+    if (colorTiles.length) groups.push({ kind: "loose", tiles: colorTiles });
+  });
+  const unknown = regular.filter((tile) => !(tileDisplay(tile).color in COLOR_ORDER));
+  if (unknown.length) groups.push({ kind: "loose", tiles: unknown.sort(tileSort) });
+  if (special.length) groups.push({ kind: "okey", tiles: special.sort(tileSort) });
+  return groups;
 }
 
 function createTile(tile) {
@@ -229,8 +336,9 @@ function createTile(tile) {
     number.textContent = value ?? "★";
   }
   if (source.is_real_okey) node.classList.add("real-okey");
+  node.title ||= `${COLOR_LABELS[color] ?? color} ${value ?? ""}`.trim();
   if (tile.represented_value) {
-    node.title = `Temsil: ${tile.represented_value.color} ${tile.represented_value.number}`;
+    node.title = `Temsil: ${COLOR_LABELS[tile.represented_value.color] ?? tile.represented_value.color} ${tile.represented_value.number}`;
   }
   return node;
 }
@@ -275,7 +383,10 @@ function normalizeFrame(raw, index) {
     current_player: state.current_player ?? action.player_id ?? 0,
     stock_count: state.stock_count ?? state.stock?.length ?? 0,
     indicator: state.indicator,
+    okey_value: state.okey_value ?? okeyFromIndicator(state.indicator),
     discard_top: state.discard_top ?? state.discard_pile?.at?.(-1) ?? null,
+    discard_pile: state.discard_pile ?? [],
+    discard_history: state.discard_history ?? [],
     players: state.players ?? [],
     table: state.table ?? { melds: [], pairs: [] },
     action,
@@ -296,6 +407,9 @@ function render() {
   byId("roundLabel").textContent = String(frame.round_id).padStart(2, "0");
   byId("turnLabel").textContent = String(frame.turn_number).padStart(2, "0");
   byId("stockCount").textContent = frame.stock_count;
+  byId("okeyValueLabel").textContent = frame.okey_value
+    ? `OKEY · ${(COLOR_LABELS[frame.okey_value.color] ?? frame.okey_value.color).toUpperCase()} ${frame.okey_value.number}`
+    : "OKEY";
   byId("phaseLabel").textContent = PHASE_LABELS[frame.phase] ?? String(frame.phase).toUpperCase();
   byId("frameCounter").textContent = `${frameIndex + 1} / ${replay.frames.length}`;
   byId("actionIndex").textContent = String(frame.index).padStart(3, "0");
@@ -303,8 +417,13 @@ function render() {
   byId("timeline").value = frameIndex;
 
   renderSingleTile(byId("indicatorTile"), frame.indicator);
+  renderSingleTile(
+    byId("okeyValueTile"),
+    frame.okey_value ? { display: frame.okey_value, is_real_okey: true } : null,
+  );
   renderSingleTile(byId("discardTile"), frame.discard_top);
   renderPlayers(frame);
+  renderDiscardLanes(frame);
   renderTable(frame.table);
   renderAction(frame);
   renderCandidates(frame.policy);
@@ -349,7 +468,12 @@ function renderPlayers(frame) {
     `;
     const rack = seatNode.querySelector(".rack");
     if (reveal) {
-      [...hand].sort(tileSort).forEach((tile) => rack.append(createTile(tile)));
+      groupHand(hand, player.opened_mode).forEach((group) => {
+        const groupNode = document.createElement("div");
+        groupNode.className = `rack-group rack-group-${group.kind}`;
+        group.tiles.forEach((tile) => groupNode.append(createTile(tile)));
+        rack.append(groupNode);
+      });
     } else {
       Array.from({ length: hand.length || player.hand_count || 0 }, () => {
         const back = document.createElement("i");
@@ -357,6 +481,27 @@ function renderPlayers(frame) {
         rack.append(back);
       });
     }
+  });
+}
+
+function renderDiscardLanes(frame) {
+  const history = frame.discard_history ?? [];
+  document.querySelectorAll(".discard-lane").forEach((lane) => {
+    const seat = Number(lane.dataset.discardSeat);
+    const tilesNode = lane.querySelector(".discard-tiles");
+    const records = history
+      .filter((record) => (record.player_id ?? record.seat) === seat)
+      .slice(-5);
+    lane.classList.toggle("empty", records.length === 0);
+    tilesNode.replaceChildren();
+    records.forEach((record, index) => {
+      const wrapper = document.createElement("div");
+      wrapper.className = "discard-entry";
+      if (record.taken_by != null) wrapper.classList.add("taken");
+      if (index === records.length - 1) wrapper.classList.add("latest");
+      wrapper.append(createTile(record.tile ?? record));
+      tilesNode.append(wrapper);
+    });
   });
 }
 

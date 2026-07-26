@@ -81,11 +81,32 @@
             <div class="seat seat-south" data-seat="0"></div>
             <div class="seat seat-west" data-seat="1"></div>
 
+            <div class="discard-lane discard-north empty" data-discard-seat="2">
+              <span>Kuzey attı</span>
+              <div class="discard-tiles"></div>
+            </div>
+            <div class="discard-lane discard-east empty" data-discard-seat="3">
+              <span>Doğu attı</span>
+              <div class="discard-tiles"></div>
+            </div>
+            <div class="discard-lane discard-south empty" data-discard-seat="0">
+              <span>Güney attı</span>
+              <div class="discard-tiles"></div>
+            </div>
+            <div class="discard-lane discard-west empty" data-discard-seat="1">
+              <span>Batı attı</span>
+              <div class="discard-tiles"></div>
+            </div>
+
             <div class="table-center">
               <div class="round-context">
                 <div class="context-tile">
                   <span>GÖSTERGE</span>
                   <div id="indicatorTile"></div>
+                </div>
+                <div class="context-tile okey-context">
+                  <span id="okeyValueLabel">OKEY</span>
+                  <div id="okeyValueTile"></div>
                 </div>
                 <div class="stock-stack" aria-label="Ortadaki taş sayısı">
                   <i></i><i></i><i></i>

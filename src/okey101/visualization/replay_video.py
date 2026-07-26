@@ -28,6 +28,22 @@ _COLORS = {
     "black": "#222831",
 }
 
+_COLOR_LABELS = {
+    "red": "Kırmızı",
+    "yellow": "Sarı",
+    "blue": "Mavi",
+    "black": "Siyah",
+}
+
+_PHASE_LABELS = {
+    "draw_decision": "ÇEKME KARARI",
+    "table_actions": "MASA HAMLELERİ",
+    "discard": "TAŞ ATMA",
+    "terminal": "EL SONU",
+}
+
+_COLOR_ORDER = {"red": 0, "yellow": 1, "blue": 2, "black": 3}
+
 
 def _require_pillow() -> None:
     if Image is None or ImageDraw is None or ImageFont is None:
@@ -96,31 +112,185 @@ def _tile(
         )
 
 
+def _tile_display(tile: Mapping[str, object]) -> Mapping[str, object]:
+    for key in ("display", "physical", "value"):
+        display = tile.get(key)
+        if isinstance(display, Mapping):
+            return display
+    return tile
+
+
+def _tile_sort_key(tile: Mapping[str, object]) -> tuple[int, int, int]:
+    display = _tile_display(tile)
+    return (
+        _COLOR_ORDER.get(str(display.get("color")), 9),
+        int(display.get("number", 99)),
+        int(tile.get("id", 0)),
+    )
+
+
+def _group_hand(
+    tiles: Sequence[object],
+    opened_mode: str = "none",
+) -> list[tuple[str, list[Mapping[str, object]]]]:
+    """Build a deterministic display-only rack layout without mutating game state."""
+
+    valid = [tile for tile in tiles if isinstance(tile, Mapping)]
+    remaining = [
+        tile
+        for tile in valid
+        if not tile.get("is_real_okey") and not tile.get("is_fake_okey")
+    ]
+    special = [
+        tile
+        for tile in valid
+        if tile.get("is_real_okey") or tile.get("is_fake_okey")
+    ]
+    groups: list[tuple[str, list[Mapping[str, object]]]] = []
+
+    def take_pairs() -> None:
+        buckets: dict[tuple[object, object], list[Mapping[str, object]]] = {}
+        for tile in remaining:
+            display = _tile_display(tile)
+            key = (display.get("color"), display.get("number"))
+            buckets.setdefault(key, []).append(tile)
+        for bucket in buckets.values():
+            while len(bucket) >= 2:
+                pair = bucket[:2]
+                del bucket[:2]
+                for tile in pair:
+                    remaining.remove(tile)
+                groups.append(("pair", sorted(pair, key=_tile_sort_key)))
+
+    if opened_mode == "pairs":
+        take_pairs()
+
+    for color in _COLOR_ORDER:
+        while True:
+            by_number: dict[int, list[Mapping[str, object]]] = {}
+            for tile in sorted(remaining, key=_tile_sort_key):
+                display = _tile_display(tile)
+                if display.get("color") == color:
+                    by_number.setdefault(int(display["number"]), []).append(tile)
+            best: list[int] = []
+            current: list[int] = []
+            for number in sorted(by_number):
+                current = (
+                    [*current, number]
+                    if not current or number == current[-1] + 1
+                    else [number]
+                )
+                if len(current) > len(best):
+                    best = current.copy()
+            if len(best) < 3:
+                break
+            run = [by_number[number][0] for number in best]
+            for tile in run:
+                remaining.remove(tile)
+            groups.append(("run", run))
+
+    for number in range(1, 14):
+        while True:
+            set_tiles: list[Mapping[str, object]] = []
+            for color in _COLOR_ORDER:
+                tile = next(
+                    (
+                        item
+                        for item in remaining
+                        if _tile_display(item).get("number") == number
+                        and _tile_display(item).get("color") == color
+                    ),
+                    None,
+                )
+                if tile is not None:
+                    set_tiles.append(tile)
+            if len(set_tiles) < 3:
+                break
+            for tile in set_tiles:
+                remaining.remove(tile)
+            groups.append(("set", sorted(set_tiles, key=_tile_sort_key)))
+
+    if opened_mode != "pairs":
+        take_pairs()
+
+    for color in _COLOR_ORDER:
+        loose = [
+            tile
+            for tile in remaining
+            if _tile_display(tile).get("color") == color
+        ]
+        if loose:
+            groups.append(("loose", sorted(loose, key=_tile_sort_key)))
+            for tile in loose:
+                remaining.remove(tile)
+    if remaining:
+        groups.append(("loose", sorted(remaining, key=_tile_sort_key)))
+    if special:
+        groups.append(("okey", sorted(special, key=_tile_sort_key)))
+    return groups
+
+
 def _hand_row(
     draw,
     tiles: Sequence[object],
     box: tuple[int, int, int, int],
     *,
     columns: int,
+    opened_mode: str = "none",
 ) -> None:
     x0, y0, x1, y1 = box
     rows = max(1, (len(tiles) + columns - 1) // columns)
-    gap = 3
-    tile_width = max(18, min(29, (x1 - x0 - (columns - 1) * gap) // columns))
+    gap = 2
+    group_gap = 8
+    tile_width = max(
+        18,
+        min(29, (x1 - x0 - (columns - 1) * gap - group_gap * 4) // columns),
+    )
     tile_height = max(27, min(41, (y1 - y0 - (rows - 1) * gap) // rows))
-    for index, item in enumerate(tiles):
-        if not isinstance(item, Mapping):
-            continue
-        column = index % columns
-        row = index // columns
-        _tile(
-            draw,
-            item,
-            x0 + column * (tile_width + gap),
-            y0 + row * (tile_height + gap),
-            width=tile_width,
-            height=tile_height,
-        )
+    cursor_x = x0
+    cursor_y = y0
+    column = 0
+    for kind, group in _group_hand(tiles, opened_mode):
+        if column and column + len(group) > columns:
+            column = 0
+            cursor_x = x0
+            cursor_y += tile_height + gap + 4
+        elif column:
+            cursor_x += group_gap
+        group_start = cursor_x
+        for item in group:
+            if column >= columns:
+                column = 0
+                cursor_x = x0
+                cursor_y += tile_height + gap + 4
+                group_start = cursor_x
+            _tile(
+                draw,
+                item,
+                cursor_x,
+                cursor_y,
+                width=tile_width,
+                height=tile_height,
+            )
+            cursor_x += tile_width + gap
+            column += 1
+        underline = {
+            "run": "#62c59b",
+            "set": "#eacb78",
+            "pair": "#eacb78",
+            "okey": "#d6a62e",
+        }.get(kind)
+        if underline and group:
+            draw.line(
+                (
+                    group_start,
+                    cursor_y + tile_height + 2,
+                    cursor_x - gap,
+                    cursor_y + tile_height + 2,
+                ),
+                fill=underline,
+                width=2,
+            )
 
 
 def _player_panel(
@@ -164,7 +334,13 @@ def _player_panel(
     )
     hand = player["hand"]
     assert isinstance(hand, Sequence)
-    _hand_row(draw, hand, (x0 + 10, y0 + 40, x1 - 10, y1 - 8), columns=columns)
+    _hand_row(
+        draw,
+        hand,
+        (x0 + 10, y0 + 40, x1 - 10, y1 - 8),
+        columns=columns,
+        opened_mode=mode,
+    )
 
 
 def _table(draw, table: Mapping[str, object], box: tuple[int, int, int, int]) -> None:
@@ -222,6 +398,104 @@ def _table(draw, table: Mapping[str, object], box: tuple[int, int, int, int]) ->
                         cursor_y,
                     )
             cursor_x += 67
+
+
+def _discard_panel(
+    draw,
+    history: Sequence[object],
+    box: tuple[int, int, int, int],
+) -> None:
+    x0, y0, x1, y1 = box
+    _rounded(
+        draw,
+        box,
+        radius=9,
+        fill="#0d2f28",
+        outline="#397d6e",
+    )
+    draw.text(
+        (x0 + 8, y0 + 8),
+        "ATILAN TAŞLAR",
+        font=_font(11, bold=True),
+        fill="#9bd6c4",
+    )
+    valid = [record for record in history if isinstance(record, Mapping)]
+    row_height = max(12, (y1 - y0 - 31) // 4)
+    tile_height = min(31, max(10, row_height - 4))
+    tile_width = max(8, round(tile_height * 0.68))
+    for player_id in range(4):
+        row_y = y0 + 29 + player_id * row_height
+        draw.text(
+            (x0 + 8, row_y + 7),
+            f"O{player_id + 1}",
+            font=_font(10, bold=True),
+            fill="#ffd77a",
+        )
+        records = [
+            record
+            for record in valid
+            if int(record.get("player_id", -1)) == player_id
+        ][-3:]
+        if not records:
+            draw.text(
+                (x0 + 34, row_y + 8),
+                "—",
+                font=_font(13),
+                fill="#597b71",
+            )
+            continue
+        for index, record in enumerate(records):
+            tile = record.get("tile")
+            if not isinstance(tile, Mapping):
+                continue
+            tile_x = x0 + 32 + index * (tile_width + 3)
+            _tile(
+                draw,
+                tile,
+                tile_x,
+                row_y,
+                width=tile_width,
+                height=tile_height,
+            )
+            if record.get("taken_by") is not None:
+                draw.line(
+                    (
+                        tile_x + 2,
+                        row_y + tile_height - 3,
+                        tile_x + tile_width - 2,
+                        row_y + 3,
+                    ),
+                    fill="#b96a5c",
+                    width=2,
+                )
+
+
+def _status_tile(
+    draw,
+    *,
+    label: str,
+    tile: Mapping[str, object] | None,
+    x: int,
+    y: int,
+    width: int = 88,
+) -> None:
+    _rounded(
+        draw,
+        (x, y, x + width, y + 51),
+        radius=7,
+        fill="#102f28",
+        outline="#315f55",
+    )
+    draw.text(
+        (x + 7, y + 6),
+        label,
+        font=_font(9, bold=True),
+        fill="#8fb5aa",
+    )
+    if tile is None:
+        draw.text((x + width - 25, y + 22), "—", font=_font(14), fill="#597b71")
+    else:
+        _tile(draw, tile, x + width - 37, y + 7, width=27, height=38)
 
 
 def _footer_narration(frame: Mapping[str, object]) -> str:
@@ -290,60 +564,135 @@ def render_frame(
     )
     draw.text(
         (width - 290, 43),
-        f"Tur {view['turn_number']} · {view['phase']}",
+        (
+            f"Tur {view['turn_number']} · "
+            f"{_PHASE_LABELS.get(str(view['phase']), str(view['phase']).upper())}"
+        ),
         font=_font(14),
         fill="#9db9b1",
     )
 
     players = view["players"]
     current = int(view["current_player"])
+    side_width = max(180, round(width * 0.17))
+    center_left = side_width + 24
+    center_right = width - side_width - 24
     _player_panel(
         draw,
         players[2],
-        (270, 88, width - 270, 178),
+        (center_left, 86, center_right, 186),
         active=current == 2,
         columns=22,
     )
     _player_panel(
         draw,
         players[0],
-        (270, height - 178, width - 270, height - 88),
+        (center_left, height - 190, center_right, height - 82),
         active=current == 0,
         columns=22,
     )
     _player_panel(
         draw,
         players[3],
-        (18, 116, 240, height - 116),
+        (16, 130, side_width, height - 130),
         active=current == 3,
         columns=5,
     )
     _player_panel(
         draw,
         players[1],
-        (width - 240, 116, width - 18, height - 116),
+        (width - side_width, 130, width - 16, height - 130),
         active=current == 1,
         columns=5,
     )
 
-    _table(draw, view["table"], (270, 206, width - 270, height - 212))
+    status_y = 194
+    status_gap = 7
+    status_width = max(
+        94,
+        (center_right - center_left - status_gap * 3) // 4,
+    )
     indicator = view["indicator"]
-    draw.text((257, 187), "Gösterge", font=_font(12), fill="#9db9b1")
-    _tile(draw, indicator, 315, 181, width=29, height=41)
-    draw.text(
-        (360, 187),
-        f"Okey: {view['okey_value']['color']} {view['okey_value']['number']}",
-        font=_font(13, bold=True),
-        fill="#ffd77a",
+    _status_tile(
+        draw,
+        label="GÖSTERGE",
+        tile=indicator,
+        x=center_left,
+        y=status_y,
+        width=status_width,
+    )
+    okey_value = view["okey_value"]
+    assert isinstance(okey_value, Mapping)
+    okey_color = _COLOR_LABELS.get(
+        str(okey_value.get("color")),
+        str(okey_value.get("color", "")),
+    )
+    okey_tile: Mapping[str, object] = {
+        "display": okey_value,
+        "is_real_okey": True,
+    }
+    second_x = center_left + status_width + status_gap
+    _status_tile(
+        draw,
+        label=f"OKEY · {okey_color.upper()} {okey_value['number']}",
+        tile=okey_tile,
+        x=second_x,
+        y=status_y,
+        width=status_width,
+    )
+    stock_x = second_x + status_width + status_gap
+    _rounded(
+        draw,
+        (stock_x, status_y, stock_x + status_width, status_y + 51),
+        radius=7,
+        fill="#102f28",
+        outline="#315f55",
     )
     draw.text(
-        (width - 440, 187),
-        f"Stok {view['stock_count']} · Atılan {len(view['discard_pile'])}",
-        font=_font(13, bold=True),
+        (stock_x + 8, status_y + 6),
+        "ORTADAKİ TAŞ",
+        font=_font(9, bold=True),
+        fill="#8fb5aa",
+    )
+    draw.text(
+        (stock_x + 11, status_y + 21),
+        str(view["stock_count"]),
+        font=_font(22, bold=True),
         fill="#ffffff",
     )
-    if isinstance(view.get("discard_top"), Mapping):
-        _tile(draw, view["discard_top"], width - 315, 181, width=29, height=41)
+    draw.text(
+        (stock_x + 48, status_y + 28),
+        f"Atılan {len(view['discard_pile'])}",
+        font=_font(10),
+        fill="#ffd77a",
+    )
+    last_x = stock_x + status_width + status_gap
+    discard_top = view.get("discard_top")
+    _status_tile(
+        draw,
+        label="SON ATILAN",
+        tile=discard_top if isinstance(discard_top, Mapping) else None,
+        x=last_x,
+        y=status_y,
+        width=status_width,
+    )
+
+    table_top = 257
+    table_bottom = height - 202
+    discard_width = min(118, max(102, (center_right - center_left) // 6))
+    discard_left = center_right - discard_width
+    _table(
+        draw,
+        view["table"],
+        (center_left, table_top, discard_left - 10, table_bottom),
+    )
+    discard_history = view.get("discard_history", [])
+    assert isinstance(discard_history, Sequence)
+    _discard_panel(
+        draw,
+        discard_history,
+        (discard_left, table_top, center_right, table_bottom),
+    )
 
     footer_y = height - 76
     draw.rectangle((0, footer_y, width, height), fill="#081f1a")

@@ -62,6 +62,8 @@ def main() -> None:
         assert desktop.locator("#candidateList .candidate-row").count() >= 2
         desktop.locator("#spectatorToggle").click()
         assert desktop.locator(".rack.concealed").count() == 3
+        desktop.locator("#spectatorToggle").click()
+        assert desktop.locator(".rack.concealed").count() == 0
         desktop.screenshot(
             path=str(args.output_dir / "viewer-demo-desktop.png"),
             full_page=True,
@@ -80,6 +82,30 @@ def main() -> None:
             assert desktop.locator("#timeline").get_attribute("max") == str(
                 len(replay["frames"]) - 1
             )
+            discard_frame = max(
+                range(len(replay["frames"])),
+                key=lambda index: len(
+                    (replay["frames"][index].get("view") or {}).get(
+                        "discard_history",
+                        [],
+                    )
+                ),
+            )
+            desktop.locator("#timeline").evaluate(
+                """(node, value) => {
+                  node.value = value;
+                  node.dispatchEvent(new Event('input', { bubbles: true }));
+                }""",
+                str(discard_frame),
+            )
+            assert desktop.locator("#okeyValueTile .okey-tile").count() == 1
+            if discard_frame:
+                assert desktop.locator(".discard-entry").count() > 0
+                assert desktop.locator(".discard-lane:not(.empty)").count() > 0
+                desktop.screenshot(
+                    path=str(args.output_dir / "viewer-discards-desktop.png"),
+                    full_page=True,
+                )
             policy_frame = next(
                 (
                     index

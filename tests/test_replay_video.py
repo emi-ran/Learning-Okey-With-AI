@@ -12,7 +12,7 @@ from PIL import Image
 
 from okey101.replay import record_random_episode
 from okey101.visualization import render_contact_sheet, render_frame_to_path
-from okey101.visualization.replay_video import _footer_narration
+from okey101.visualization.replay_video import _footer_narration, _group_hand
 
 
 @pytest.fixture(scope="module")
@@ -46,6 +46,37 @@ def test_terminal_footer_reports_round_end_reason(replay) -> None:
     assert _footer_narration(replay["frames"][-1]) == (
         "Stok bitti · el sona erdi."
     )
+
+
+def test_display_hand_groups_preserve_every_physical_tile() -> None:
+    tiles = [
+        {
+            "id": index,
+            "display": {"color": color, "number": number},
+            "is_real_okey": real_okey,
+            "is_fake_okey": False,
+        }
+        for index, (color, number, real_okey) in enumerate(
+            [
+                ("red", 4, False),
+                ("red", 5, False),
+                ("red", 6, False),
+                ("yellow", 9, False),
+                ("blue", 9, False),
+                ("black", 9, False),
+                ("yellow", 2, False),
+                ("yellow", 2, False),
+                ("black", 3, True),
+            ]
+        )
+    ]
+
+    groups = _group_hand(tiles)
+    grouped_ids = [tile["id"] for _kind, group in groups for tile in group]
+
+    assert sorted(grouped_ids) == list(range(len(tiles)))
+    assert [kind for kind, _group in groups] == ["run", "set", "pair", "okey"]
+    assert groups == _group_hand(tiles)
 
 
 def test_poster_only_cli_does_not_require_ffmpeg(
