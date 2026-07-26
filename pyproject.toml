@@ -7,9 +7,11 @@ name = "okey101"
 version = "0.1.0"
 description = "Deterministic 101 Okey engine and self-play environment"
 requires-python = ">=3.11"
+dependencies = ["numpy>=1.26"]
 
 [project.optional-dependencies]
 dev = ["pytest>=8"]
+video = ["Pillow>=10.0"]
 
 [tool.setuptools.packages.find]
 where = ["src"]
