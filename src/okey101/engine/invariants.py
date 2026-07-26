@@ -6,9 +6,11 @@ from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from .melds import validate_meld
+from .pairs import validate_pair
 from .player import OpenedMode
 from .state import GameState, TerminalReason, TurnPhase
-from .tiles import PhysicalTile
+from .tiles import PhysicalTile, build_tile_set
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,6 +125,61 @@ def find_invariant_violations(
             )
         )
 
+    if expected == set(range(106)):
+        canonical_by_id = {tile.id: tile for tile in build_tile_set()}
+        for location, tile in locations:
+            canonical = canonical_by_id.get(tile.id)
+            if canonical is not None and tile != canonical:
+                violations.append(
+                    InvariantViolation(
+                        "PHYSICAL_TILE_IDENTITY",
+                        (
+                            f"{location} has {tile!r}, expected "
+                            f"{canonical!r} for id {tile.id}"
+                        ),
+                    )
+                )
+
+    physical_by_id = {
+        tile_id: next(tile for _location, tile in locations if tile.id == tile_id)
+        for tile_id in by_id
+    }
+    for index, record in enumerate(state.discard_history):
+        location = f"discard_history[{index}]"
+        current_tile = physical_by_id.get(record.tile.id)
+        if current_tile is None:
+            violations.append(
+                InvariantViolation(
+                    "UNKNOWN_DISCARD_HISTORY_TILE",
+                    f"{location} references tile id {record.tile.id}",
+                )
+            )
+        elif current_tile != record.tile:
+            violations.append(
+                InvariantViolation(
+                    "DISCARD_HISTORY_TILE_MISMATCH",
+                    f"{location} does not match physical tile {record.tile.id}",
+                )
+            )
+        for field_name, player_id in (
+            ("player_id", record.player_id),
+            ("taken_by", record.taken_by),
+        ):
+            if player_id is not None and not 0 <= player_id < len(state.players):
+                violations.append(
+                    InvariantViolation(
+                        "INVALID_DISCARD_HISTORY_PLAYER",
+                        f"{location}.{field_name}={player_id}",
+                    )
+                )
+        if record.turn_number > state.turn_number:
+            violations.append(
+                InvariantViolation(
+                    "FUTURE_DISCARD_HISTORY_TURN",
+                    f"{location}.turn_number={record.turn_number}",
+                )
+            )
+
     if not state.players:
         violations.append(
             InvariantViolation("NO_PLAYERS", "state must contain players")
@@ -212,6 +269,23 @@ def find_invariant_violations(
                 InvariantViolation(
                     "ALL_PAIRS_REASON_MISMATCH",
                     "not every player opened pairs",
+                )
+            )
+
+    for table_meld in state.table.melds:
+        if not validate_meld(table_meld.meld, state.okey_value):
+            violations.append(
+                InvariantViolation(
+                    "INVALID_TABLE_MELD",
+                    f"table meld {table_meld.id} is not legal",
+                )
+            )
+    for pair_index, pair in enumerate(state.table.pairs):
+        if not validate_pair(pair, state.okey_value):
+            violations.append(
+                InvariantViolation(
+                    "INVALID_TABLE_PAIR",
+                    f"table pair {pair_index} is not legal",
                 )
             )
 

@@ -13,6 +13,7 @@ from .melds import (
     validate_meld,
 )
 from .pairs import Pair, build_pair, validate_pair
+from .state import DiscardRecord
 from .tiles import (
     Color,
     PhysicalTile,
@@ -24,6 +25,7 @@ from .tiles import (
 __all__ = [
     "Color",
     "Deck",
+    "DiscardRecord",
     "GameConfig",
     "Meld",
     "MeldKind",

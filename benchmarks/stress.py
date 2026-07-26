@@ -32,6 +32,7 @@ class StressFailure:
     error_message: str
     traceback: str
     actions: list[Any]
+    failed_action: Any | None
     state: dict[str, Any] | None
 
 
@@ -87,6 +88,9 @@ def _run_seed_range(
     for offset in range(count):
         seed = start_seed + offset
         action_index = 0
+        attempted_action: object | None = None
+        pre_action_state: dict[str, Any] | None = None
+        history_length_before = 0
         agents = tuple(
             RandomAgent(seed * 17 + 100_000 + seat) for seat in range(4)
         )
@@ -105,12 +109,19 @@ def _run_seed_range(
                     )
                 player_id = state.current_player
                 observation = engine.get_observation(player_id)
-                action = agents[player_id].select_action(observation, legal_actions)
-                state, _events = engine.step(action)
-                action_index += 1
+                attempted_action = agents[player_id].select_action(
+                    observation,
+                    legal_actions,
+                )
+                pre_action_state = engine.serialize_state()
+                history_length_before = len(engine.action_history)
+                state, _events = engine.step(attempted_action)
                 actions += 1
                 if validate_every_step:
                     validate_invariants(state)
+                action_index += 1
+                attempted_action = None
+                pre_action_state = None
 
             validate_invariants(state)
             engine.get_scores()
@@ -119,6 +130,12 @@ def _run_seed_range(
             terminal_reasons[reason] = terminal_reasons.get(reason, 0) + 1
             completed += 1
         except Exception as error:  # failure artifact is the point of this runner
+            recorded_actions = list(engine.action_history)
+            if (
+                attempted_action is not None
+                and len(recorded_actions) == history_length_before
+            ):
+                recorded_actions.append(attempted_action)
             failures.append(
                 StressFailure(
                     seed=seed,
@@ -126,11 +143,16 @@ def _run_seed_range(
                     error_type=type(error).__name__,
                     error_message=str(error),
                     traceback=traceback.format_exc(),
-                    actions=_primitive(engine.action_history),
+                    actions=_primitive(recorded_actions),
+                    failed_action=_primitive(attempted_action),
                     state=(
-                        engine.serialize_state()
-                        if engine.state is not None
-                        else None
+                        pre_action_state
+                        if pre_action_state is not None
+                        else (
+                            engine.serialize_state()
+                            if engine.state is not None
+                            else None
+                        )
                     ),
                 )
             )

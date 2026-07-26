@@ -8,8 +8,9 @@ from okey101.solver.attachment_solver import generate_attachments
 from okey101.solver.meld_generator import (
     generate_melds as generate_meld_candidates,
 )
-from okey101.solver.opening_solver import find_legal_openings
+from okey101.solver.opening_solver import _has_legal_opening, find_legal_openings
 from okey101.solver.pair_solver import (
+    _has_pair_opening,
     find_pair_openings,
     generate_pairs as generate_pair_candidates,
 )
@@ -159,7 +160,10 @@ def _table_actions(state: GameState, config: RulesConfig) -> tuple[Action, ...]:
                 preserve_final_discard=True,
             )
         )
-    elif player.opened_mode is OpenedMode.SERIES:
+    elif (
+        player.opened_mode is OpenedMode.SERIES
+        and required_tile_id is None
+    ):
         actions.extend(
             OpenMelds((meld,))
             for meld in generate_meld_candidates(
@@ -199,7 +203,7 @@ def _table_actions(state: GameState, config: RulesConfig) -> tuple[Action, ...]:
     return tuple(actions)
 
 
-def _can_use_previous_discard(
+def can_use_previous_discard(
     state: GameState,
     config: RulesConfig,
 ) -> bool:
@@ -219,10 +223,21 @@ def _can_use_previous_discard(
             opened_mode_at_start=hypothetical_player.opened_mode,
         ),
     )
-    return any(
-        tile.id in _action_tile_ids(action)
-        for action in _table_actions(hypothetical, config)
-    )
+    if hypothetical_player.opened_mode is OpenedMode.NONE:
+        return _has_legal_opening(
+            hypothetical_player.hand,
+            hypothetical.okey_value,
+            threshold=hypothetical.progressive_series_threshold,
+            required_tile_id=tile.id,
+            preserve_final_discard=True,
+        ) or _has_pair_opening(
+            hypothetical_player.hand,
+            hypothetical.okey_value,
+            threshold=hypothetical.progressive_pair_threshold,
+            required_tile_id=tile.id,
+            preserve_final_discard=True,
+        )
+    return bool(_table_actions(hypothetical, config))
 
 
 def get_legal_actions(
@@ -237,7 +252,7 @@ def get_legal_actions(
         actions: list[Action] = []
         if state.stock:
             actions.append(DrawFromStock())
-        if _can_use_previous_discard(state, config):
+        if can_use_previous_discard(state, config):
             actions.append(TakePreviousDiscard())
         return tuple(actions)
     if state.phase is TurnPhase.TABLE_ACTIONS:

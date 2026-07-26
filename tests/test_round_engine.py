@@ -17,16 +17,25 @@ from okey101.engine.actions import (
     TakePreviousDiscard,
 )
 from okey101.engine.config import GameConfig
-from okey101.engine.melds import MeldTile, build_meld
+from okey101.engine.invariants import InvariantError
+from okey101.engine.melds import (
+    Meld,
+    MeldKind,
+    MeldTile,
+    build_meld,
+)
 from okey101.engine.pairs import build_pair
 from okey101.engine.player import OpenedMode, PlayerState
 from okey101.engine.round import (
     ReplayError,
     RoundEngine,
     create_round_state,
+    deserialize_action,
     replay_from_seed_and_actions,
+    serialize_action,
 )
 from okey101.engine.state import (
+    DiscardRecord,
     DrawSource,
     EventType,
     GameState,
@@ -60,6 +69,7 @@ def state_for(
     phase: TurnPhase = TurnPhase.TABLE_ACTIONS,
     stock: tuple[PhysicalTile, ...] = (),
     discard_pile: tuple[PhysicalTile, ...] = (),
+    discard_history: tuple[DiscardRecord, ...] = (),
     table: TableState | None = None,
     okey_value: TileValue = TileValue(Color.YELLOW, 1),
     turn_context: TurnContext | None = None,
@@ -82,6 +92,7 @@ def state_for(
         stock=stock,
         discard_pile=discard_pile,
         players=players,
+        discard_history=discard_history,
         table=table or TableState(),
         phase=phase,
         turn_context=turn_context
@@ -221,6 +232,18 @@ def test_load_state_rejects_malformed_enum_with_field_path() -> None:
         RoundEngine().load_state(payload)
 
 
+def test_load_state_rejects_rebound_physical_tile_identity() -> None:
+    engine = RoundEngine()
+    engine.reset(seed=2, starting_player=0)
+    payload = engine.serialize_state()
+    hand = payload["players"][0]["hand"]
+    tile = next(item for item in hand if item["kind"] == "normal")
+    tile["number"] = tile["number"] % 13 + 1
+
+    with pytest.raises(InvariantError, match="PHYSICAL_TILE_IDENTITY"):
+        RoundEngine().load_state(payload)
+
+
 def test_replay_from_seed_and_actions_reproduces_state_and_events() -> None:
     seed = 144
     starting_player = 2
@@ -245,6 +268,25 @@ def test_replay_from_seed_and_actions_reproduces_state_and_events() -> None:
     assert replayed.event_log == original.event_log
 
 
+def test_action_serialization_round_trips_embedded_physical_tiles() -> None:
+    action = OpenMelds(
+        (
+            build_meld(
+                (
+                    normal(Color.RED, 2),
+                    normal(Color.RED, 3),
+                    normal(Color.RED, 4),
+                ),
+                TileValue(Color.YELLOW, 1),
+            ),
+        )
+    )
+
+    payload = json.loads(json.dumps(serialize_action(action)))
+
+    assert deserialize_action(payload) == action
+
+
 def test_replay_error_reports_failing_action_index() -> None:
     with pytest.raises(ReplayError, match="action 0") as error:
         replay_from_seed_and_actions(
@@ -260,12 +302,29 @@ def test_replay_error_reports_failing_action_index() -> None:
 def test_stock_draw_decrements_stock_but_previous_discard_pickup_does_not() -> None:
     stock_tile = normal(Color.BLUE, 9)
     discard_tile = normal(Color.RED, 5)
+    table_meld = build_meld(
+        (
+            normal(Color.RED, 2),
+            normal(Color.RED, 3),
+            normal(Color.RED, 4),
+        ),
+        TileValue(Color.YELLOW, 1),
+    )
+    table, _meld_ids = TableState().add_melds((table_meld,))
     base = state_for(
         (normal(Color.BLACK, 13),),
         opened_mode=OpenedMode.SERIES,
         phase=TurnPhase.DRAW_DECISION,
         stock=(stock_tile,),
         discard_pile=(discard_tile,),
+        discard_history=(
+            DiscardRecord(
+                tile=discard_tile,
+                player_id=3,
+                turn_number=2,
+            ),
+        ),
+        table=table,
     )
 
     drawn, events = apply_action(base, DrawFromStock(), GameConfig())
@@ -277,6 +336,9 @@ def test_stock_draw_decrements_stock_but_previous_discard_pickup_does_not() -> N
     taken, events = apply_action(base, TakePreviousDiscard(), GameConfig())
     assert taken.stock == (stock_tile,)
     assert taken.discard_pile == ()
+    assert taken.discard_history[0].tile == discard_tile
+    assert taken.discard_history[0].player_id == 3
+    assert taken.discard_history[0].taken_by == 0
     assert taken.current_player_state.hand[-1] == discard_tile
     assert taken.turn_context.must_use_taken_discard
     assert events[0].type is EventType.TAKE_DISCARD
@@ -312,6 +374,41 @@ def test_taken_discard_must_be_used_by_the_same_player_before_discard_phase() ->
     assert not used.turn_context.must_use_taken_discard
     discard_phase, _ = apply_action(used, EndTableActions(), GameConfig())
     assert discard_phase.phase is TurnPhase.DISCARD
+
+
+def test_transition_rejects_unusable_previous_discard_even_when_called_directly() -> None:
+    dead_discard = normal(Color.BLUE, 11)
+    state = state_for(
+        (normal(Color.BLACK, 13),),
+        opened_mode=OpenedMode.SERIES,
+        phase=TurnPhase.DRAW_DECISION,
+        discard_pile=(dead_discard,),
+    )
+
+    with pytest.raises(IllegalAction, match="cannot be used legally"):
+        apply_action(state, TakePreviousDiscard(), GameConfig())
+
+
+def test_action_tiles_must_match_the_canonical_hand_identity() -> None:
+    actual = normal(Color.BLACK, 9)
+    forged = PhysicalTile(actual.id, TileKind.NORMAL, Color.RED, 2)
+    red_three = normal(Color.RED, 3)
+    red_four = normal(Color.RED, 4)
+    state = state_for(
+        (actual, red_three, red_four, normal(Color.BLUE, 13)),
+        okey_value=TileValue(Color.YELLOW, 1),
+    )
+    forged_meld = build_meld(
+        (forged, red_three, red_four),
+        state.okey_value,
+    )
+
+    with pytest.raises(IllegalAction, match="does not match hand identity"):
+        apply_action(
+            state,
+            OpenMelds((forged_meld,)),
+            GameConfig(opening_min_score=9),
+        )
 
 
 def test_opening_uses_only_laid_meld_score_and_updates_progressive_threshold() -> None:
@@ -352,6 +449,37 @@ def test_opening_uses_only_laid_meld_score_and_updates_progressive_threshold() -
     too_high = replace(state, progressive_series_threshold=106)
     with pytest.raises(IllegalAction, match="below the required"):
         apply_action(too_high, OpenMelds(melds), GameConfig())
+
+
+def test_opening_scores_real_okey_by_its_represented_value() -> None:
+    okey_value = TileValue(Color.RED, 5)
+    red_three = normal(Color.RED, 3)
+    red_four = normal(Color.RED, 4)
+    real_okey = normal(Color.RED, 5)
+    meld = Meld(
+        MeldKind.RUN,
+        (
+            MeldTile(red_three, TileValue(Color.RED, 3)),
+            MeldTile(red_four, TileValue(Color.RED, 4)),
+            MeldTile(real_okey, TileValue(Color.RED, 5)),
+        ),
+    )
+    state = replace(
+        state_for(
+            (*meld.physical_tiles, normal(Color.BLACK, 13)),
+            okey_value=okey_value,
+        ),
+        progressive_series_threshold=12,
+    )
+
+    opened, _events = apply_action(
+        state,
+        OpenMelds((meld,)),
+        GameConfig(opening_min_score=12),
+    )
+
+    assert meld.score == 12
+    assert opened.current_player_state.opened_mode is OpenedMode.SERIES
 
 
 def test_pair_opening_and_series_player_can_add_to_existing_pair_area() -> None:
@@ -547,6 +675,46 @@ def test_final_okey_discard_has_combined_same_turn_reason_and_no_penalty() -> No
     assert not any(event.type is EventType.PENALTY for event in events)
 
 
+@pytest.mark.parametrize(
+    ("discard_okey", "expected_reason"),
+    (
+        (False, TerminalReason.PAIR_FINISH),
+        (True, TerminalReason.PAIR_OKEY_FINISH),
+    ),
+)
+def test_pair_opened_final_discard_has_explicit_finish_reason(
+    discard_okey: bool,
+    expected_reason: TerminalReason,
+) -> None:
+    okey_value = TileValue(Color.BLUE, 1)
+    final_tile = (
+        normal(Color.BLUE, 1)
+        if discard_okey
+        else normal(Color.BLACK, 13)
+    )
+    players = (
+        PlayerState(hand=(final_tile,), opened_mode=OpenedMode.PAIRS),
+        PlayerState(),
+        PlayerState(),
+        PlayerState(),
+    )
+    state = state_for(
+        (final_tile,),
+        players=players,
+        phase=TurnPhase.DISCARD,
+        okey_value=okey_value,
+    )
+
+    finished, _events = apply_action(
+        state,
+        Discard(final_tile.id),
+        GameConfig(),
+    )
+
+    assert finished.terminal_reason is expected_reason
+    assert finished.current_player_state.immediate_penalty == 0
+
+
 def test_nonfinal_playable_discard_is_legal_and_accumulates_immediate_penalty() -> None:
     okey_value = TileValue(Color.YELLOW, 1)
     meld = build_meld(
@@ -568,6 +736,36 @@ def test_nonfinal_playable_discard_is_legal_and_accumulates_immediate_penalty() 
     assert not updated.terminal
     assert updated.current_player == 1
     assert updated.players[0].immediate_penalty == 101
+    assert any(event.type is EventType.PENALTY for event in events)
+
+
+def test_transition_penalties_accumulate_across_multiple_events() -> None:
+    okey_value = TileValue(Color.BLUE, 1)
+    real_okey = normal(Color.BLUE, 1)
+    players = (
+        PlayerState(
+            hand=(real_okey, normal(Color.BLACK, 13)),
+            opened_mode=OpenedMode.SERIES,
+            immediate_penalty=101,
+        ),
+        PlayerState(),
+        PlayerState(),
+        PlayerState(),
+    )
+    state = state_for(
+        players[0].hand,
+        players=players,
+        phase=TurnPhase.DISCARD,
+        okey_value=okey_value,
+    )
+
+    updated, events = apply_action(
+        state,
+        Discard(real_okey.id),
+        GameConfig(),
+    )
+
+    assert updated.players[0].immediate_penalty == 202
     assert any(event.type is EventType.PENALTY for event in events)
 
 

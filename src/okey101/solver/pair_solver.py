@@ -6,11 +6,17 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from itertools import combinations
 
-from okey101.engine.joker import effective_value
-from okey101.engine.pairs import Pair, build_pair
+from okey101.engine.melds import MeldTile
+from okey101.engine.pairs import Pair
 from okey101.engine.tiles import Color, PhysicalTile, TileValue
 
-from .canonicalization import pair_group_key, pair_key
+from .canonicalization import pair_key
+from .meld_generator import index_hand
+
+
+_ALL_TILE_VALUES = tuple(
+    TileValue(color, number) for color in Color for number in range(1, 14)
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,32 +37,39 @@ def generate_pairs(
 ) -> tuple[Pair, ...]:
     """Enumerate every legal two-physical-tile pair."""
 
-    ids = [tile.id for tile in hand]
-    if len(ids) != len(set(ids)):
-        raise ValueError("hand contains a duplicate physical tile id")
+    fixed_by_value, jokers = index_hand(hand, okey_value)
     candidates: dict[tuple[object, ...], Pair] = {}
-    for first, second in combinations(hand, 2):
-        if required_tile_id is not None and required_tile_id not in (first.id, second.id):
-            continue
-        both_are_wild = (
-            effective_value(first, okey_value) is None
-            and effective_value(second, okey_value) is None
+
+    def add_pair(
+        first: PhysicalTile,
+        second: PhysicalTile,
+        represented_value: TileValue,
+    ) -> None:
+        if (
+            required_tile_id is not None
+            and required_tile_id not in (first.id, second.id)
+        ):
+            return
+        physical_tiles = sorted((first, second), key=lambda tile: tile.id)
+        pair = Pair(
+            (
+                MeldTile(physical_tiles[0], represented_value),
+                MeldTile(physical_tiles[1], represented_value),
+            )
         )
-        represented_values = (
-            tuple(TileValue(color, number) for color in Color for number in range(1, 14))
-            if both_are_wild
-            else (None,)
-        )
-        for represented_value in represented_values:
-            try:
-                pair = build_pair(
-                    (first, second),
-                    okey_value,
-                    represented_value=represented_value,
-                )
-            except ValueError:
-                continue
-            candidates[pair_key(pair)] = pair
+        candidates[pair_key(pair)] = pair
+
+    for represented_value, fixed_tiles in fixed_by_value.items():
+        for first, second in combinations(fixed_tiles, 2):
+            add_pair(first, second, represented_value)
+        for fixed_tile in fixed_tiles:
+            for joker in jokers:
+                add_pair(fixed_tile, joker, represented_value)
+
+    for first, second in combinations(jokers, 2):
+        for represented_value in _ALL_TILE_VALUES:
+            add_pair(first, second, represented_value)
+
     return tuple(candidates[key] for key in sorted(candidates))
 
 
@@ -72,40 +85,116 @@ def find_pair_openings(
 
     if threshold < 1:
         raise ValueError("pair threshold must be positive")
+    return _search_pair_openings(
+        hand,
+        okey_value,
+        threshold=threshold,
+        required_tile_id=required_tile_id,
+        preserve_final_discard=preserve_final_discard,
+        stop_after_first=False,
+    )
+
+
+def _has_pair_opening(
+    hand: Sequence[PhysicalTile],
+    okey_value: TileValue,
+    *,
+    threshold: int,
+    required_tile_id: int,
+    preserve_final_discard: bool,
+) -> bool:
+    return bool(
+        _search_pair_openings(
+            hand,
+            okey_value,
+            threshold=threshold,
+            required_tile_id=required_tile_id,
+            preserve_final_discard=preserve_final_discard,
+            stop_after_first=True,
+        )
+    )
+
+
+def _search_pair_openings(
+    hand: Sequence[PhysicalTile],
+    okey_value: TileValue,
+    *,
+    threshold: int,
+    required_tile_id: int | None,
+    preserve_final_discard: bool,
+    stop_after_first: bool,
+) -> tuple[PairOpeningCandidate, ...]:
     hand_ids = {tile.id for tile in hand}
     if required_tile_id is not None and required_tile_id not in hand_ids:
         return ()
+
     pairs = generate_pairs(hand, okey_value)
-    pair_ids = tuple(
-        frozenset(tile.physical_tile.id for tile in pair.tiles) for pair in pairs
+    sorted_hand_ids = tuple(sorted(hand_ids))
+    id_bits = {
+        tile_id: 1 << index for index, tile_id in enumerate(sorted_hand_ids)
+    }
+    pair_masks = tuple(
+        sum(id_bits[tile.physical_tile.id] for tile in pair.tiles)
+        for pair in pairs
     )
-    results: dict[tuple[tuple[object, ...], ...], PairOpeningCandidate] = {}
+    suffix_tile_masks = [0] * (len(pairs) + 1)
+    for index in range(len(pairs) - 1, -1, -1):
+        suffix_tile_masks[index] = suffix_tile_masks[index + 1] | pair_masks[index]
+
+    results: list[PairOpeningCandidate] = []
+    selected_indexes: list[int] = []
     max_used = len(hand) - int(preserve_final_discard)
+    required_mask = (
+        id_bits[required_tile_id] if required_tile_id is not None else 0
+    )
 
     def visit(
         start: int,
-        selected: tuple[Pair, ...],
-        used_ids: frozenset[int],
-    ) -> None:
+        used_mask: int,
+    ) -> bool:
         if (
-            len(selected) >= threshold
-            and (required_tile_id is None or required_tile_id in used_ids)
+            len(selected_indexes) >= threshold
+            and (not required_mask or used_mask & required_mask)
         ):
-            ordered = tuple(sorted(selected, key=pair_key))
-            key = pair_group_key(ordered)
-            results[key] = PairOpeningCandidate(
-                pairs=ordered,
-                tile_ids=tuple(sorted(used_ids)),
+            results.append(
+                PairOpeningCandidate(
+                    pairs=tuple(pairs[index] for index in selected_indexes),
+                    tile_ids=tuple(
+                        tile_id
+                        for index, tile_id in enumerate(sorted_hand_ids)
+                        if used_mask & (1 << index)
+                    ),
+                )
             )
-        for index in range(start, len(pairs)):
-            ids = pair_ids[index]
-            combined = used_ids | ids
-            if ids & used_ids or len(combined) > max_used:
-                continue
-            visit(index + 1, (*selected, pairs[index]), combined)
+            if stop_after_first:
+                return True
 
-    visit(0, (), frozenset())
-    return tuple(results[key] for key in sorted(results))
+        used_count = used_mask.bit_count()
+        if len(selected_indexes) + (max_used - used_count) // 2 < threshold:
+            return False
+        if (
+            required_mask
+            and not used_mask & required_mask
+            and not suffix_tile_masks[start] & required_mask
+        ):
+            return False
+
+        for index in range(start, len(pairs)):
+            pair_mask = pair_masks[index]
+            if pair_mask & used_mask:
+                continue
+            combined = used_mask | pair_mask
+            if combined.bit_count() > max_used:
+                continue
+            selected_indexes.append(index)
+            found = visit(index + 1, combined)
+            selected_indexes.pop()
+            if found and stop_after_first:
+                return True
+        return False
+
+    visit(0, 0)
+    return tuple(results)
 
 
 generate_pair_candidates = generate_pairs

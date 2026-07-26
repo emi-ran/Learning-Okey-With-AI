@@ -47,6 +47,14 @@ class VisiblePair:
 
 
 @dataclass(frozen=True, slots=True)
+class VisibleDiscard:
+    tile: VisibleTile
+    player_relative: int
+    turn_number: int
+    taken_by_relative: int | None
+
+
+@dataclass(frozen=True, slots=True)
 class PublicPlayerStatus:
     """Public per-seat information in perspective-relative seat order."""
 
@@ -71,7 +79,7 @@ class PlayerObservation:
     okey_value: TileValue
     table_melds: tuple[VisibleMeld, ...]
     pair_area: tuple[VisiblePair, ...]
-    discard_history: tuple[VisibleTile, ...]
+    discard_history: tuple[VisibleDiscard, ...]
     player_statuses: tuple[PublicPlayerStatus, ...]
     progressive_series_threshold: int
     progressive_pair_threshold: int
@@ -173,7 +181,17 @@ def get_observation(state: GameState, player_id: int) -> PlayerObservation:
         table_melds=melds,
         pair_area=pairs,
         discard_history=tuple(
-            _visible_tile(tile, state.okey_value) for tile in state.discard_pile
+            VisibleDiscard(
+                tile=_visible_tile(record.tile, state.okey_value),
+                player_relative=(record.player_id - player_id) % player_count,
+                turn_number=record.turn_number,
+                taken_by_relative=(
+                    None
+                    if record.taken_by is None
+                    else (record.taken_by - player_id) % player_count
+                ),
+            )
+            for record in state.discard_history
         ),
         player_statuses=statuses,
         progressive_series_threshold=state.progressive_series_threshold,

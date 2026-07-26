@@ -10,9 +10,16 @@ from okey101.engine.invariants import (
     validate_invariants,
 )
 from okey101.engine.joker import okey_value_for_indicator
+from okey101.engine.melds import Meld, MeldKind, MeldTile
 from okey101.engine.player import PlayerState
-from okey101.engine.state import GameState, TerminalReason, TurnPhase
-from okey101.engine.tiles import build_tile_set
+from okey101.engine.state import (
+    DiscardRecord,
+    GameState,
+    TerminalReason,
+    TurnPhase,
+)
+from okey101.engine.table import TableState
+from okey101.engine.tiles import TileValue, build_tile_set
 
 
 def conserved_state() -> GameState:
@@ -70,3 +77,88 @@ def test_terminal_state_requires_terminal_phase_reason_and_winner_consistency() 
     }
 
     assert {"TERMINAL_PHASE", "MISSING_WINNER"} <= codes
+
+
+def test_discard_history_is_a_nonowning_but_validated_reference() -> None:
+    state = conserved_state()
+    valid = replace(
+        state,
+        discard_history=(
+            DiscardRecord(
+                tile=state.stock[0],
+                player_id=1,
+                turn_number=0,
+                taken_by=2,
+            ),
+        ),
+    )
+    validate_invariants(valid)
+
+    broken = replace(
+        state,
+        discard_history=(
+            DiscardRecord(
+                tile=replace(state.stock[0], id=999),
+                player_id=8,
+                turn_number=2,
+            ),
+        ),
+    )
+    codes = {
+        violation.code for violation in find_invariant_violations(broken)
+    }
+
+    assert {
+        "UNKNOWN_DISCARD_HISTORY_TILE",
+        "INVALID_DISCARD_HISTORY_PLAYER",
+        "FUTURE_DISCARD_HISTORY_TURN",
+    } <= codes
+
+
+def test_physical_id_cannot_be_rebound_to_a_different_tile_value() -> None:
+    state = conserved_state()
+    canonical = state.stock[0]
+    assert canonical.number is not None
+    forged = replace(
+        canonical,
+        number=canonical.number % 13 + 1,
+    )
+    broken = replace(state, stock=(forged, *state.stock[1:]))
+
+    codes = {
+        violation.code for violation in find_invariant_violations(broken)
+    }
+
+    assert "PHYSICAL_TILE_IDENTITY" in codes
+
+
+def test_table_meld_shape_and_stored_assignments_are_invariants() -> None:
+    state = conserved_state()
+    first, second, third = state.stock[:3]
+    assert first.value is not None
+    assert second.value is not None
+    assert third.value is not None
+    invalid = Meld(
+        MeldKind.RUN,
+        (
+            MeldTile(first, first.value),
+            MeldTile(second, second.value),
+            MeldTile(
+                third,
+                TileValue(third.value.color, 13),
+            ),
+        ),
+    )
+    table, _ids = TableState().add_melds((invalid,))
+    relocated = {first.id, second.id, third.id}
+    broken = replace(
+        state,
+        stock=tuple(tile for tile in state.stock if tile.id not in relocated),
+        table=table,
+    )
+
+    codes = {
+        violation.code for violation in find_invariant_violations(broken)
+    }
+
+    assert "INVALID_TABLE_MELD" in codes

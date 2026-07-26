@@ -7,7 +7,19 @@ from random import Random
 from collections.abc import Iterable, Mapping
 from typing import Any, NoReturn
 
-from .actions import Action
+from .actions import (
+    Action,
+    ActionType,
+    AddPair,
+    AddToMeld,
+    Discard,
+    DrawFromStock,
+    EndTableActions,
+    OpenMelds,
+    OpenPairs,
+    ReplaceJoker,
+    TakePreviousDiscard,
+)
 from .config import GameConfig
 from .joker import okey_value_for_indicator
 from .melds import Meld, MeldKind, MeldTile
@@ -15,6 +27,7 @@ from .pairs import Pair
 from .player import OpenedMode, PlayerState
 from .state import (
     AttachmentUsage,
+    DiscardRecord,
     DrawSource,
     EngineEvent,
     EventType,
@@ -373,6 +386,27 @@ def _turn_context(value: object, path: str) -> TurnContext:
     )
 
 
+def _discard_record(value: object, path: str) -> DiscardRecord:
+    data = _mapping(value, path)
+    raw_taken_by = data.get("taken_by")
+    return DiscardRecord(
+        tile=_physical_tile(_required(data, "tile", path), f"{path}.tile"),
+        player_id=_integer(
+            _required(data, "player_id", path),
+            f"{path}.player_id",
+        ),
+        turn_number=_integer(
+            _required(data, "turn_number", path),
+            f"{path}.turn_number",
+        ),
+        taken_by=(
+            None
+            if raw_taken_by is None
+            else _integer(raw_taken_by, f"{path}.taken_by")
+        ),
+    )
+
+
 def deserialize_state(payload: Mapping[str, object]) -> GameState:
     """Rebuild a fully typed ``GameState`` from JSON-compatible state data."""
 
@@ -419,6 +453,12 @@ def deserialize_state(payload: Mapping[str, object]) -> GameState:
                 _sequence(_required(data, "players", "$"), "$.players")
             )
         ),
+        discard_history=tuple(
+            _discard_record(item, f"$.discard_history[{index}]")
+            for index, item in enumerate(
+                _sequence(data.get("discard_history", ()), "$.discard_history")
+            )
+        ),
         table=_table(_required(data, "table", "$"), "$.table"),
         progressive_series_threshold=_integer(
             _required(data, "progressive_series_threshold", "$"),
@@ -454,7 +494,91 @@ class ReplayError(RuntimeError):
         super().__init__(
             f"Replay failed at action {action_index} "
             f"({type(action).__name__}): {reason}"
+    )
+
+
+def deserialize_action(payload: Mapping[str, object]) -> Action:
+    """Rebuild one typed action from ``_to_primitive`` JSON data."""
+
+    data = _mapping(payload, "$")
+    action_type = _enum(
+        ActionType,
+        _required(data, "type", "$"),
+        "$.type",
+    )
+    if action_type is ActionType.DRAW_FROM_STOCK:
+        return DrawFromStock()
+    if action_type is ActionType.TAKE_PREVIOUS_DISCARD:
+        return TakePreviousDiscard()
+    if action_type is ActionType.OPEN_MELDS:
+        return OpenMelds(
+            tuple(
+                _meld(item, f"$.melds[{index}]")
+                for index, item in enumerate(
+                    _sequence(_required(data, "melds", "$"), "$.melds")
+                )
+            )
         )
+    if action_type is ActionType.OPEN_PAIRS:
+        return OpenPairs(
+            tuple(
+                _pair(item, f"$.pairs[{index}]")
+                for index, item in enumerate(
+                    _sequence(_required(data, "pairs", "$"), "$.pairs")
+                )
+            )
+        )
+    if action_type is ActionType.ADD_TO_MELD:
+        return AddToMeld(
+            meld_id=_integer(
+                _required(data, "meld_id", "$"),
+                "$.meld_id",
+            ),
+            tiles=tuple(
+                _meld_tile(item, f"$.tiles[{index}]")
+                for index, item in enumerate(
+                    _sequence(_required(data, "tiles", "$"), "$.tiles")
+                )
+            ),
+            side=_enum(
+                AttachmentSide,
+                _required(data, "side", "$"),
+                "$.side",
+            ),
+        )
+    if action_type is ActionType.ADD_PAIR:
+        return AddPair(_pair(_required(data, "pair", "$"), "$.pair"))
+    if action_type is ActionType.REPLACE_JOKER:
+        return ReplaceJoker(
+            meld_id=_integer(
+                _required(data, "meld_id", "$"),
+                "$.meld_id",
+            ),
+            joker_tile_id=_integer(
+                _required(data, "joker_tile_id", "$"),
+                "$.joker_tile_id",
+            ),
+            replacement_tile_id=_integer(
+                _required(data, "replacement_tile_id", "$"),
+                "$.replacement_tile_id",
+            ),
+        )
+    if action_type is ActionType.END_TABLE_ACTIONS:
+        return EndTableActions()
+    if action_type is ActionType.DISCARD:
+        return Discard(
+            _integer(_required(data, "tile_id", "$"), "$.tile_id")
+        )
+    raise ValueError(f"Unsupported action type at $.type: {action_type!r}")
+
+
+def serialize_action(action: Action) -> dict[str, Any]:
+    """Return a JSON-compatible action payload accepted by ``deserialize_action``."""
+
+    payload = _to_primitive(action)
+    if not isinstance(payload, dict):
+        raise TypeError("Action serialization did not produce an object")
+    return payload
 
 
 class RoundEngine:

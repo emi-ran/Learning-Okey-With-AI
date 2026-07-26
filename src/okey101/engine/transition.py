@@ -21,6 +21,7 @@ from .melds import Meld, MeldKind, MeldTile, validate_meld
 from .pairs import Pair, validate_pair
 from .player import OpenedMode, PlayerState
 from .state import (
+    DiscardRecord,
     DrawSource,
     EngineEvent,
     EventType,
@@ -75,12 +76,23 @@ def _validate_pair(pair: Pair, state: GameState) -> None:
     _require(valid, "Invalid pair")
 
 
-def _require_hand_tiles(player: PlayerState, tile_ids: Iterable[int]) -> tuple[int, ...]:
-    ids = tuple(tile_ids)
+def _require_hand_tiles(
+    player: PlayerState,
+    tiles: Iterable[PhysicalTile],
+) -> tuple[int, ...]:
+    supplied = tuple(tiles)
+    ids = tuple(tile.id for tile in supplied)
     _require(_all_unique(ids), "A physical tile cannot be used more than once")
-    hand_ids = {tile.id for tile in player.hand}
-    missing = set(ids) - hand_ids
+    hand_by_id = {tile.id: tile for tile in player.hand}
+    missing = set(ids) - set(hand_by_id)
     _require(not missing, f"Tiles are not in the player's hand: {sorted(missing)}")
+    mismatched = sorted(
+        tile.id for tile in supplied if hand_by_id[tile.id] != tile
+    )
+    _require(
+        not mismatched,
+        f"Action tile payload does not match hand identity: {mismatched}",
+    )
     return ids
 
 
@@ -174,6 +186,7 @@ def _draw_from_stock(
 def _take_previous_discard(
     state: GameState,
     action: TakePreviousDiscard,
+    config: RulesConfig,
 ) -> tuple[GameState, tuple[EngineEvent, ...]]:
     del action
     _require(
@@ -181,6 +194,12 @@ def _take_previous_discard(
         "Previous discard cannot be taken in this phase",
     )
     _require(bool(state.discard_pile), "There is no previous discard to take")
+    from .legal_actions import can_use_previous_discard
+
+    _require(
+        can_use_previous_discard(state, config),
+        "Previous discard cannot be used legally this turn",
+    )
 
     tile = state.discard_pile[-1]
     player = state.current_player_state.add_tiles((tile,))
@@ -192,9 +211,16 @@ def _take_previous_discard(
         taken_discard_used=False,
     )
     updated = state.replace_player(state.current_player, player)
+    history = list(state.discard_history)
+    for index in range(len(history) - 1, -1, -1):
+        record = history[index]
+        if record.tile.id == tile.id and record.taken_by is None:
+            history[index] = replace(record, taken_by=state.current_player)
+            break
     updated = replace(
         updated,
         discard_pile=state.discard_pile[:-1],
+        discard_history=tuple(history),
         phase=TurnPhase.TABLE_ACTIONS,
         turn_context=context,
     )
@@ -220,7 +246,14 @@ def _open_melds(
         _validate_meld(meld, state)
 
     tile_ids = tuple(tile_id for meld in action.melds for tile_id in _meld_tile_ids(meld))
-    _require_hand_tiles(player, tile_ids)
+    _require_hand_tiles(
+        player,
+        (
+            tile.physical_tile
+            for meld in action.melds
+            for tile in meld.tiles
+        ),
+    )
     score = _meld_score(action.melds)
 
     opening = player.opened_mode is OpenedMode.NONE
@@ -284,7 +317,14 @@ def _open_pairs(
         _validate_pair(pair, state)
 
     tile_ids = tuple(tile_id for pair in action.pairs for tile_id in _pair_tile_ids(pair))
-    _require_hand_tiles(player, tile_ids)
+    _require_hand_tiles(
+        player,
+        (
+            tile.physical_tile
+            for pair in action.pairs
+            for tile in pair.tiles
+        ),
+    )
     player = _consume_tiles(player, tile_ids).open(OpenedMode.PAIRS, state.turn_number)
     context = replace(
         _mark_used(state.turn_context, tile_ids),
@@ -357,7 +397,10 @@ def _add_to_meld(
     )
 
     tile_ids = tuple(_meld_tile_physical(tile).id for tile in action.tiles)
-    _require_hand_tiles(state.current_player_state, tile_ids)
+    _require_hand_tiles(
+        state.current_player_state,
+        (tile.physical_tile for tile in action.tiles),
+    )
     if action.side is AttachmentSide.LEFT:
         combined = (*action.tiles, *table_meld.meld.tiles)
     else:
@@ -397,7 +440,10 @@ def _add_pair(
     )
     _validate_pair(action.pair, state)
     tile_ids = _pair_tile_ids(action.pair)
-    _require_hand_tiles(player, tile_ids)
+    _require_hand_tiles(
+        player,
+        (tile.physical_tile for tile in action.pair.tiles),
+    )
     player = _consume_tiles(player, tile_ids)
     context = _mark_used(state.turn_context, tile_ids)
     updated = state.replace_player(state.current_player, player)
@@ -540,7 +586,18 @@ def _discard(
             player = player.add_immediate_penalty(penalty)
 
     updated = state.replace_player(state.current_player, player)
-    updated = replace(updated, discard_pile=(*state.discard_pile, discarded))
+    updated = replace(
+        updated,
+        discard_pile=(*state.discard_pile, discarded),
+        discard_history=(
+            *state.discard_history,
+            DiscardRecord(
+                tile=discarded,
+                player_id=state.current_player,
+                turn_number=state.turn_number,
+            ),
+        ),
+    )
     events: list[EngineEvent] = [
         EngineEvent(
             EventType.DISCARD,
@@ -600,7 +657,7 @@ def apply_action(
     if isinstance(action, DrawFromStock):
         return _draw_from_stock(state, action)
     if isinstance(action, TakePreviousDiscard):
-        return _take_previous_discard(state, action)
+        return _take_previous_discard(state, action, config)
     if isinstance(action, OpenMelds):
         return _open_melds(state, action, config)
     if isinstance(action, OpenPairs):

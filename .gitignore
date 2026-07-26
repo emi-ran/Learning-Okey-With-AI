@@ -7,3 +7,4 @@ build/
 dist/
 *.egg-info/
 stress_failures/
+stress_runs/

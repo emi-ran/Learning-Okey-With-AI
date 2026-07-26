@@ -4,7 +4,7 @@ from dataclasses import replace
 
 from okey101.engine.joker import okey_value_for_indicator
 from okey101.engine.player import OpenedMode, PlayerState
-from okey101.engine.state import GameState
+from okey101.engine.state import DiscardRecord, GameState
 from okey101.engine.tiles import Color, PhysicalTile, TileKind
 from okey101.rl.observation import get_observation
 
@@ -77,3 +77,26 @@ def test_statuses_are_relative_and_public() -> None:
     assert left_status.opened_mode is OpenedMode.SERIES
     assert left_status.immediate_penalty == 101
     assert left_status.score == 303
+
+
+def test_discard_history_retains_discarder_and_taker_relative_to_viewer() -> None:
+    state = state_with_hidden_hands()
+    discarded = normal(81, Color.BLUE, 8)
+    state = replace(
+        state,
+        discard_history=(
+            DiscardRecord(
+                tile=discarded,
+                player_id=2,
+                turn_number=1,
+                taken_by=3,
+            ),
+        ),
+    )
+
+    record = get_observation(state, 1).discard_history[0]
+
+    assert record.tile.tile_id == discarded.id
+    assert record.player_relative == 1
+    assert record.turn_number == 1
+    assert record.taken_by_relative == 2

@@ -26,6 +26,19 @@ SET_TARGETS = tuple(
 )
 
 
+def _value_bit(value: TileValue) -> int:
+    color_index, number = value.sort_key
+    return 1 << (color_index * 13 + number - 1)
+
+
+RUN_TARGET_MASKS = tuple(
+    sum(_value_bit(value) for value in targets) for targets in RUN_TARGETS
+)
+SET_TARGET_MASKS = tuple(
+    sum(_value_bit(value) for value in targets) for targets in SET_TARGETS
+)
+
+
 def index_hand(
     hand: Sequence[PhysicalTile],
     okey_value: TileValue,
@@ -59,10 +72,45 @@ def assign_indexed_targets(
 ) -> tuple[tuple[MeldTile, ...], ...]:
     """Assign distinct physical tiles to one ordered logical pattern."""
 
-    if sum(bool(fixed_by_value.get(target)) for target in targets) + len(jokers) < len(
-        targets
-    ):
+    if sum(target not in fixed_by_value for target in targets) > len(jokers):
         return ()
+
+    if len(set(targets)) != len(targets):
+        return _assign_repeated_targets(fixed_by_value, jokers, targets)
+
+    results: list[tuple[MeldTile, ...]] = []
+    assigned: list[MeldTile] = []
+
+    def visit(
+        target_index: int,
+        first_available_joker: int,
+    ) -> None:
+        if target_index == len(targets):
+            results.append(tuple(assigned))
+            return
+        target = targets[target_index]
+        for tile in fixed_by_value.get(target, ()):
+            assigned.append(MeldTile(tile, target))
+            visit(target_index + 1, first_available_joker)
+            assigned.pop()
+        for joker_index in range(first_available_joker, len(jokers)):
+            assigned.append(MeldTile(jokers[joker_index], target))
+            # Bind lower-ID identical Okeys to earlier missing values and omit
+            # only the physically swapped equivalent.
+            visit(target_index + 1, joker_index + 1)
+            assigned.pop()
+
+    visit(0, 0)
+    return tuple(results)
+
+
+def _assign_repeated_targets(
+    fixed_by_value: dict[TileValue, tuple[PhysicalTile, ...]],
+    jokers: tuple[PhysicalTile, ...],
+    targets: Sequence[TileValue],
+) -> tuple[tuple[MeldTile, ...], ...]:
+    """General fallback for callers outside the run/set pattern tables."""
+
     results: list[tuple[MeldTile, ...]] = []
 
     def visit(
@@ -86,8 +134,6 @@ def assign_indexed_targets(
         for tile in jokers:
             if tile.id in used_ids:
                 continue
-            # When both identical physical Okeys are selected, bind the lower
-            # ID to the earlier missing value and omit the swapped equivalent.
             if last_joker_id is not None and tile.id < last_joker_id:
                 continue
             visit(
@@ -119,12 +165,15 @@ def generate_melds(
     """Enumerate every physical run/set candidate in canonical order."""
 
     fixed_by_value, jokers = index_hand(hand, okey_value)
+    fixed_value_mask = sum(_value_bit(value) for value in fixed_by_value)
     candidates: dict[tuple[object, ...], Meld] = {}
-    for kind, targets_collection in (
-        (MeldKind.RUN, RUN_TARGETS),
-        (MeldKind.SET, SET_TARGETS),
+    for kind, targets_collection, target_masks in (
+        (MeldKind.RUN, RUN_TARGETS, RUN_TARGET_MASKS),
+        (MeldKind.SET, SET_TARGETS, SET_TARGET_MASKS),
     ):
-        for targets in targets_collection:
+        for targets, target_mask in zip(targets_collection, target_masks):
+            if (target_mask & ~fixed_value_mask).bit_count() > len(jokers):
+                continue
             for assignment in assign_indexed_targets(fixed_by_value, jokers, targets):
                 if (
                     required_tile_id is not None

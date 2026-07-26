@@ -162,3 +162,63 @@ def test_taken_discard_constraint_exposes_only_actions_that_can_progress_usage()
     )
     assert all(action.type.value != "end_table_actions" for action in actions)
     assert is_playable_discard(state, taken)
+
+
+def test_opened_player_cannot_take_discard_only_for_a_new_independent_meld() -> None:
+    hand = (
+        tile(40, Color.RED, 6),
+        tile(41, Color.RED, 7),
+        tile(42, Color.BLACK, 12),
+    )
+    independent_meld_tile = tile(43, Color.RED, 5)
+
+    actions = get_legal_actions(
+        state_for(
+            hand,
+            phase=TurnPhase.DRAW_DECISION,
+            opened_mode=OpenedMode.SERIES,
+            discard_pile=(independent_meld_tile,),
+        ),
+        RulesConfig(),
+    )
+
+    assert TakePreviousDiscard() not in actions
+
+
+def test_taken_discard_must_be_used_on_existing_table_before_new_melds() -> None:
+    table_meld = build_meld(
+        (
+            tile(50, Color.RED, 2),
+            tile(51, Color.RED, 3),
+            tile(52, Color.RED, 4),
+        ),
+        TileValue(Color.YELLOW, 1),
+    )
+    taken = tile(53, Color.RED, 5)
+    state = state_for(
+        (
+            taken,
+            tile(54, Color.RED, 6),
+            tile(55, Color.RED, 7),
+            tile(56, Color.BLACK, 12),
+        ),
+        phase=TurnPhase.TABLE_ACTIONS,
+        opened_mode=OpenedMode.SERIES,
+        table=TableState(melds=(TableMeld(0, table_meld),), next_meld_id=1),
+        context=TurnContext(
+            draw_source=DrawSource.PREVIOUS_DISCARD,
+            drawn_tile_id=taken.id,
+            taken_discard_tile_id=taken.id,
+            opened_mode_at_start=OpenedMode.SERIES,
+        ),
+    )
+
+    actions = get_legal_actions(state, RulesConfig())
+
+    assert any(
+        isinstance(action, AddToMeld)
+        and taken.id
+        in {meld_tile.physical_tile.id for meld_tile in action.tiles}
+        for action in actions
+    )
+    assert not any(isinstance(action, OpenMelds) for action in actions)

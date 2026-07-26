@@ -59,6 +59,24 @@ class EngineEvent:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscardRecord:
+    """Public history entry retained after the physical tile is picked up."""
+
+    tile: PhysicalTile
+    player_id: int
+    turn_number: int
+    taken_by: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.player_id < 0:
+            raise ValueError("discard player id cannot be negative")
+        if self.turn_number < 0:
+            raise ValueError("discard turn number cannot be negative")
+        if self.taken_by is not None and self.taken_by < 0:
+            raise ValueError("discard taker id cannot be negative")
+
+
+@dataclass(frozen=True, slots=True)
 class AttachmentUsage:
     meld_id: int
     side: AttachmentSide
@@ -123,6 +141,7 @@ class GameState:
     stock: tuple[PhysicalTile, ...]
     discard_pile: tuple[PhysicalTile, ...]
     players: tuple[PlayerState, ...]
+    discard_history: tuple[DiscardRecord, ...] = ()
     table: TableState = field(default_factory=TableState)
     progressive_series_threshold: int = 101
     progressive_pair_threshold: int = 5
