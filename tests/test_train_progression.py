@@ -66,6 +66,16 @@ def test_progression_publishes_checkpoints_replays_and_history(
     assert result["state"]["phase"] == "complete"
     assert status["state"]["current_episode"] == 2
     assert len(status["history"]) == 2
+    assert status["history_entries_total"] == 2
+    assert status["telemetry"]["totals"]["episodes"] == 2
+    assert status["telemetry"]["totals"]["actions"] > 0
+    assert len(status["telemetry"]["players"]) == 4
+    assert status["telemetry"]["performance"]["episodes_per_second"] > 0
+    history_lines = (
+        output_dir / "history.jsonl"
+    ).read_text(encoding="utf-8").splitlines()
+    assert len(history_lines) == 2
+    assert [json.loads(line)["episode"] for line in history_lines] == [1, 2]
     assert [item["episode"] for item in status["checkpoints"]] == [0, 1, 2]
     assert all(
         item["status"] == "ready"

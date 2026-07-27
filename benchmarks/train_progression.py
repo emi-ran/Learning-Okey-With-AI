@@ -10,6 +10,7 @@ import tempfile
 import threading
 import time
 import webbrowser
+from collections import deque
 from dataclasses import asdict
 from datetime import UTC, datetime
 from functools import partial
@@ -39,7 +40,8 @@ from okey101.training import (
 )
 from okey101.visualization import render_contact_sheet, render_mp4
 
-_STATUS_SCHEMA_VERSION = 1
+_STATUS_SCHEMA_VERSION = 2
+_STATUS_HISTORY_LIMIT = 1_200
 
 
 def _utc_now() -> str:
@@ -110,6 +112,159 @@ def _web_path(path: Path, repository_root: Path) -> str:
     return "/" + quote(relative.as_posix())
 
 
+def _sample_history(
+    history: list[dict[str, Any]],
+    limit: int = _STATUS_HISTORY_LIMIT,
+) -> list[dict[str, Any]]:
+    """Keep chart coverage bounded while preserving the newest episodes."""
+
+    if len(history) <= limit:
+        return history.copy()
+    recent_count = min(300, limit // 3)
+    older = history[:-recent_count]
+    slots = limit - recent_count
+    stride = max(1, (len(older) + slots - 1) // slots)
+    sampled = older[::stride][-slots:]
+    return [*sampled, *history[-recent_count:]]
+
+
+def _empty_telemetry(player_count: int) -> dict[str, Any]:
+    return {
+        "performance": {
+            "training_seconds": 0.0,
+            "last_episode_seconds": None,
+            "episodes_per_second": 0.0,
+            "rolling_episodes_per_second": 0.0,
+            "actions_per_second": 0.0,
+            "eta_seconds": None,
+        },
+        "totals": {
+            "episodes": 0,
+            "actions": 0,
+            "discard_actions": 0,
+            "real_okey_discards": 0,
+            "playable_discards": 0,
+            "penalty_events": 0,
+            "immediate_penalty_points": 0,
+            "penalized_episodes": 0,
+            "finishes": 0,
+            "opened_series": 0,
+            "opened_pairs": 0,
+        },
+        "rates": {
+            "real_okey_discard": 0.0,
+            "playable_discard": 0.0,
+            "penalty_per_episode": 0.0,
+            "finish": 0.0,
+        },
+        "terminal_reasons": {},
+        "players": [
+            {
+                "seat": seat,
+                "actions": 0,
+                "discards": 0,
+                "real_okey_discards": 0,
+                "playable_discards": 0,
+                "penalty_events": 0,
+                "penalty_points": 0,
+                "finishes": 0,
+                "opened_series": 0,
+                "opened_pairs": 0,
+                "score_total": 0,
+                "mean_score": 0.0,
+            }
+            for seat in range(player_count)
+        ],
+    }
+
+
+def _update_telemetry(
+    telemetry: dict[str, Any],
+    result: Any,
+    *,
+    episode_seconds: float,
+    rolling_seconds: deque[float],
+    target_episodes: int,
+) -> None:
+    totals = telemetry["totals"]
+    totals["episodes"] += 1
+    totals["actions"] += result.actions
+    totals["discard_actions"] += result.discard_actions
+    totals["real_okey_discards"] += result.real_okey_discards
+    totals["playable_discards"] += result.playable_discards
+    penalty_events = result.real_okey_discards + result.playable_discards
+    totals["penalty_events"] += penalty_events
+    episode_penalty = sum(result.immediate_penalties)
+    totals["immediate_penalty_points"] += episode_penalty
+    totals["penalized_episodes"] += int(episode_penalty > 0)
+    totals["finishes"] += int(result.winner_seat is not None)
+    totals["opened_series"] += sum(
+        mode == "series" for mode in result.opened_modes
+    )
+    totals["opened_pairs"] += sum(
+        mode == "pairs" for mode in result.opened_modes
+    )
+
+    for seat, player in enumerate(telemetry["players"]):
+        player["actions"] += result.actions_by_seat[seat]
+        player["discards"] += result.discards_by_seat[seat]
+        player["real_okey_discards"] += (
+            result.real_okey_discards_by_seat[seat]
+        )
+        player["playable_discards"] += (
+            result.playable_discards_by_seat[seat]
+        )
+        player["penalty_events"] += (
+            result.real_okey_discards_by_seat[seat]
+            + result.playable_discards_by_seat[seat]
+        )
+        player["penalty_points"] += result.immediate_penalties[seat]
+        player["finishes"] += int(result.winner_seat == seat)
+        player["opened_series"] += int(result.opened_modes[seat] == "series")
+        player["opened_pairs"] += int(result.opened_modes[seat] == "pairs")
+        player["score_total"] += result.final_scores[seat]
+        player["mean_score"] = player["score_total"] / totals["episodes"]
+
+    reasons = telemetry["terminal_reasons"]
+    reasons[result.terminal_reason] = reasons.get(result.terminal_reason, 0) + 1
+    episodes = totals["episodes"]
+    discards = totals["discard_actions"]
+    telemetry["rates"].update(
+        {
+            "real_okey_discard": (
+                totals["real_okey_discards"] / discards if discards else 0.0
+            ),
+            "playable_discard": (
+                totals["playable_discards"] / discards if discards else 0.0
+            ),
+            "penalty_per_episode": (
+                totals["immediate_penalty_points"] / episodes
+            ),
+            "finish": totals["finishes"] / episodes,
+        }
+    )
+
+    rolling_seconds.append(episode_seconds)
+    performance = telemetry["performance"]
+    performance["training_seconds"] += episode_seconds
+    performance["last_episode_seconds"] = episode_seconds
+    performance["episodes_per_second"] = (
+        episodes / performance["training_seconds"]
+    )
+    performance["rolling_episodes_per_second"] = (
+        len(rolling_seconds) / sum(rolling_seconds)
+    )
+    performance["actions_per_second"] = (
+        totals["actions"] / performance["training_seconds"]
+    )
+    remaining = max(0, target_episodes - episodes)
+    performance["eta_seconds"] = (
+        remaining / performance["rolling_episodes_per_second"]
+        if remaining
+        else 0.0
+    )
+
+
 def _checkpoint_paths(
     output_dir: Path,
     episode: int,
@@ -140,6 +295,7 @@ def run_progression(
     fps: float = 2.0,
     video_size: tuple[int, int] = (1280, 720),
     render_videos: bool = True,
+    status_interval_seconds: float = 1.0,
     game_config: GameConfig | None = None,
     training_config: TrainingConfig | None = None,
     quiet: bool = False,
@@ -154,12 +310,15 @@ def run_progression(
         raise ValueError("checkpoints must be unique and sorted")
     if evaluation_episodes < 1:
         raise ValueError("evaluation_episodes must be positive")
+    if status_interval_seconds <= 0:
+        raise ValueError("status_interval_seconds must be positive")
     if output_dir.exists() and any(output_dir.iterdir()):
         raise FileExistsError(
             f"output directory is not empty: {output_dir}"
         )
     output_dir.mkdir(parents=True, exist_ok=True)
     status_path = output_dir / "status.json"
+    history_path = output_dir / "history.jsonl"
     trainer = SelfPlayTrainer(
         seed=seed,
         game_config=game_config,
@@ -176,6 +335,8 @@ def run_progression(
             "evaluation_episodes": evaluation_episodes,
             "started_at": _utc_now(),
             "completed_at": None,
+            "history_path": _web_path(history_path, _REPOSITORY_ROOT),
+            "status_interval_seconds": status_interval_seconds,
         },
         "state": {
             "phase": "starting",
@@ -185,11 +346,25 @@ def run_progression(
             "message": "Eğitim hazırlanıyor.",
         },
         "history": [],
+        "history_entries_total": 0,
+        "telemetry": _empty_telemetry(trainer.game_config.player_count),
         "checkpoints": [],
     }
 
-    def publish() -> None:
-        _atomic_write_json(status_path, state)
+    last_publish = 0.0
+
+    def publish(*, force: bool = True) -> None:
+        nonlocal last_publish
+        now = time.monotonic()
+        if not force and now - last_publish < status_interval_seconds:
+            return
+        payload = {
+            **state,
+            "history": _sample_history(state["history"]),
+            "history_entries_total": len(state["history"]),
+        }
+        _atomic_write_json(status_path, payload)
+        last_publish = now
 
     def announce(message: str) -> None:
         if not quiet:
@@ -297,6 +472,12 @@ def run_progression(
                     "playable_discard_rate": (
                         evaluation.playable_discard_rate
                     ),
+                    "mean_immediate_penalty": (
+                        evaluation.mean_immediate_penalty
+                    ),
+                    "penalized_episode_rate": (
+                        evaluation.penalized_episode_rate
+                    ),
                 },
                 "summary": document["summary"],
             }
@@ -323,8 +504,11 @@ def run_progression(
             }
         )
         publish()
+        rolling_seconds: deque[float] = deque(maxlen=100)
         for episode in range(1, episodes + 1):
+            episode_started = time.perf_counter()
             result = trainer.train_episode()
+            episode_seconds = time.perf_counter() - episode_started
             history_entry = {
                 "episode": result.episode,
                 "episode_seed": result.episode_seed,
@@ -339,8 +523,35 @@ def run_progression(
                 )
                 / len(result.rewards),
                 "terminal_reason": result.terminal_reason,
+                "winner_seat": result.winner_seat,
+                "discard_actions": result.discard_actions,
+                "real_okey_discards": result.real_okey_discards,
+                "playable_discards": result.playable_discards,
+                "penalty_events": (
+                    result.real_okey_discards + result.playable_discards
+                ),
+                "immediate_penalties": list(result.immediate_penalties),
+                "opened_modes": list(result.opened_modes),
+                "episode_seconds": episode_seconds,
             }
             state["history"].append(history_entry)
+            with history_path.open("a", encoding="utf-8") as history_file:
+                history_file.write(
+                    json.dumps(
+                        history_entry,
+                        ensure_ascii=False,
+                        allow_nan=False,
+                        sort_keys=True,
+                    )
+                    + "\n"
+                )
+            _update_telemetry(
+                state["telemetry"],
+                result,
+                episode_seconds=episode_seconds,
+                rolling_seconds=rolling_seconds,
+                target_episodes=episodes,
+            )
             state["state"].update(
                 {
                     "phase": "training",
@@ -348,7 +559,7 @@ def run_progression(
                     "message": f"Episode {episode}/{episodes} tamamlandı.",
                 }
             )
-            publish()
+            publish(force=False)
             announce(
                 f"[{episode:>4}/{episodes}] "
                 f"loss={result.loss:+.4f} "
@@ -433,6 +644,12 @@ def main() -> None:
     parser.add_argument("--width", type=int, default=1280)
     parser.add_argument("--height", type=int, default=720)
     parser.add_argument("--no-video", action="store_true")
+    parser.add_argument(
+        "--status-interval",
+        type=float,
+        default=1.0,
+        help="seconds between live status writes during training",
+    )
     parser.add_argument("--quiet", action="store_true")
     parser.add_argument("--serve-port", type=int)
     parser.add_argument("--open-dashboard", action="store_true")
@@ -475,6 +692,7 @@ def main() -> None:
             fps=args.fps,
             video_size=(args.width, args.height),
             render_videos=not args.no_video,
+            status_interval_seconds=args.status_interval,
             quiet=args.quiet,
         )
         if server is not None and args.keep_serving:

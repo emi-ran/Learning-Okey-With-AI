@@ -38,6 +38,8 @@ class StepResult:
     terminated: bool
     terminal_reason: TerminalReason | None
     final_scores: tuple[int, ...] | None
+    immediate_penalties: tuple[int, ...] | None
+    opened_modes: tuple[str, ...] | None
 
 
 def _validated_seed(seed: int | None) -> int:
@@ -158,6 +160,8 @@ class SingleRoundEnv:
                 terminated=False,
                 terminal_reason=None,
                 final_scores=None,
+                immediate_penalties=None,
+                opened_modes=None,
             )
 
         scores = self._engine.get_scores()
@@ -170,4 +174,10 @@ class SingleRoundEnv:
             terminated=True,
             terminal_reason=state.terminal_reason,
             final_scores=scores,
+            immediate_penalties=tuple(
+                player.immediate_penalty for player in state.players
+            ),
+            opened_modes=tuple(
+                player.opened_mode.value for player in state.players
+            ),
         )

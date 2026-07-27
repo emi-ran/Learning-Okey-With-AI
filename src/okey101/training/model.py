@@ -33,10 +33,22 @@ def _iter_numeric(value: object) -> Iterator[float]:
 def observation_vector(model_input: ModelInput) -> FloatArray:
     """Flatten the versioned observation without accessing raw engine state."""
 
-    values = np.fromiter(
-        _iter_numeric(model_input.observation),
-        dtype=np.float64,
-    )
+    # EncodedObservationV1 contains only scalar fields, flat tuples and
+    # two-dimensional tuples. Flatten those documented shapes directly;
+    # recursively calling dataclasses.is_dataclass for every scalar dominated
+    # self-play runtime at thousands of episodes.
+    flattened: list[float] = []
+    for field in fields(model_input.observation):
+        value = getattr(model_input.observation, field.name)
+        if not isinstance(value, tuple):
+            flattened.append(float(value))
+            continue
+        if value and isinstance(value[0], tuple):
+            for row in value:
+                flattened.extend(float(item) for item in row)
+        else:
+            flattened.extend(float(item) for item in value)
+    values = np.asarray(flattened, dtype=np.float64)
     if values.size == 0 or not np.all(np.isfinite(values)):
         raise ValueError("observation features must be finite and non-empty")
     return np.tanh(values)
@@ -163,6 +175,28 @@ class NumpyActorCritic:
             selected = int(rng.choice(len(probabilities), p=probabilities))
         return selected, value
 
+    def select_prepared(
+        self,
+        observation: FloatArray,
+        candidates: FloatArray,
+        *,
+        rng: np.random.Generator | None = None,
+        deterministic: bool = False,
+    ) -> tuple[int, float]:
+        """Select from arrays already prepared for this exact decision."""
+
+        _oh, _ch, probabilities, value = self._forward_arrays(
+            observation,
+            candidates,
+        )
+        if deterministic:
+            selected = int(np.argmax(probabilities))
+        else:
+            if rng is None:
+                raise ValueError("stochastic selection requires an RNG")
+            selected = int(rng.choice(len(probabilities), p=probabilities))
+        return selected, value
+
     def loss_and_gradients(
         self,
         samples: list[tuple[ModelInput, int, float]],
@@ -171,6 +205,30 @@ class NumpyActorCritic:
         entropy_coefficient: float,
     ) -> tuple[float, dict[str, FloatArray]]:
         """Compute full-episode REINFORCE and critic gradients."""
+
+        prepared_samples = [
+            (
+                observation_vector(model_input),
+                candidate_matrix(model_input),
+                selected,
+                terminal_return,
+            )
+            for model_input, selected, terminal_return in samples
+        ]
+        return self.loss_and_gradients_prepared(
+            prepared_samples,
+            value_coefficient=value_coefficient,
+            entropy_coefficient=entropy_coefficient,
+        )
+
+    def loss_and_gradients_prepared(
+        self,
+        samples: list[tuple[FloatArray, FloatArray, int, float]],
+        *,
+        value_coefficient: float,
+        entropy_coefficient: float,
+    ) -> tuple[float, dict[str, FloatArray]]:
+        """Compute gradients without re-encoding arrays used for selection."""
 
         if not samples:
             raise ValueError("at least one training sample is required")
@@ -181,9 +239,7 @@ class NumpyActorCritic:
         loss = 0.0
         scale = sqrt(self.hidden_size)
 
-        for model_input, selected, terminal_return in samples:
-            observation = observation_vector(model_input)
-            candidates = candidate_matrix(model_input)
+        for observation, candidates, selected, terminal_return in samples:
             (
                 observation_hidden,
                 candidate_hidden,

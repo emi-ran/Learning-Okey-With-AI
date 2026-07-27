@@ -78,6 +78,7 @@ def _tile(
     *,
     width: int = 27,
     height: int = 39,
+    marker: str = "auto",
 ) -> None:
     _rounded(
         draw,
@@ -98,12 +99,36 @@ def _tile(
         font=number_font,
         fill=color,
     )
-    if tile.get("is_real_okey"):
+    if marker == "flower":
+        center_x = x + width * 0.5
+        center_y = y + height * 0.79
+        petal = max(1.7, width * 0.075)
+        offset = petal * 1.15
+        for dx, dy in ((-offset, 0), (offset, 0), (0, -offset), (0, offset)):
+            draw.ellipse(
+                (
+                    center_x + dx - petal,
+                    center_y + dy - petal,
+                    center_x + dx + petal,
+                    center_y + dy + petal,
+                ),
+                fill="#92968e",
+            )
+        draw.ellipse(
+            (
+                center_x - petal,
+                center_y - petal,
+                center_x + petal,
+                center_y + petal,
+            ),
+            fill="#e8ddc5",
+        )
+    elif marker == "auto" and tile.get("is_real_okey"):
         draw.ellipse(
             (x + width * 0.36, y + height * 0.72, x + width * 0.64, y + height * 0.9),
             fill="#d22f2f",
         )
-    elif tile.get("is_fake_okey"):
+    elif marker == "auto" and tile.get("is_fake_okey"):
         draw.text(
             (x + width * 0.36, y + height * 0.63),
             "★",
@@ -470,6 +495,74 @@ def _discard_panel(
                 )
 
 
+def _discard_pocket(
+    draw,
+    history: Sequence[object],
+    *,
+    player_id: int,
+    label: str,
+    box: tuple[int, int, int, int],
+) -> None:
+    """Render one player's recent discards in a table-corner pocket."""
+
+    x0, y0, x1, y1 = box
+    _rounded(
+        draw,
+        box,
+        radius=8,
+        fill="#0b342a",
+        outline="#6d9b81",
+    )
+    draw.text(
+        (x0 + 8, y0 + 6),
+        label,
+        font=_font(10, bold=True),
+        fill="#d9c47d",
+    )
+    records = [
+        record
+        for record in history
+        if isinstance(record, Mapping)
+        and int(record.get("player_id", -1)) == player_id
+    ][-4:]
+    if not records:
+        draw.text(
+            (x0 + 8, y0 + 28),
+            "ATMA ALANI",
+            font=_font(8, bold=True),
+            fill="#56786d",
+        )
+        return
+    tile_height = min(38, y1 - y0 - 12)
+    tile_width = round(tile_height * 0.68)
+    start_x = x1 - 8 - tile_width - (len(records) - 1) * (tile_width // 2)
+    tile_y = y0 + (y1 - y0 - tile_height) // 2
+    for index, record in enumerate(records):
+        tile = record.get("tile")
+        if not isinstance(tile, Mapping):
+            continue
+        tile_x = start_x + index * (tile_width // 2)
+        _tile(
+            draw,
+            tile,
+            tile_x,
+            tile_y,
+            width=tile_width,
+            height=tile_height,
+        )
+        if record.get("taken_by") is not None:
+            draw.line(
+                (
+                    tile_x + 2,
+                    tile_y + tile_height - 3,
+                    tile_x + tile_width - 2,
+                    tile_y + 3,
+                ),
+                fill="#bd6558",
+                width=2,
+            )
+
+
 def _status_tile(
     draw,
     *,
@@ -478,6 +571,7 @@ def _status_tile(
     x: int,
     y: int,
     width: int = 88,
+    marker: str = "auto",
 ) -> None:
     _rounded(
         draw,
@@ -495,7 +589,15 @@ def _status_tile(
     if tile is None:
         draw.text((x + width - 25, y + 22), "—", font=_font(14), fill="#597b71")
     else:
-        _tile(draw, tile, x + width - 37, y + 7, width=27, height=38)
+        _tile(
+            draw,
+            tile,
+            x + width - 37,
+            y + 7,
+            width=27,
+            height=38,
+            marker=marker,
+        )
 
 
 def _footer_narration(frame: Mapping[str, object]) -> str:
@@ -540,30 +642,31 @@ def render_frame(
     if width < 960 or height < 540:
         raise ValueError("video size must be at least 960x540")
 
-    image = Image.new("RGB", size, "#0a2c24")
+    image = Image.new("RGB", size, "#093226")
     draw = ImageDraw.Draw(image)
-    draw.rectangle((0, 0, width, 76), fill="#081f1a")
+    draw.rectangle((0, 0, width, 70), fill="#071f19")
+    draw.line((0, 69, width, 69), fill="#5f7e61", width=1)
     checkpoint = replay["checkpoint"]
     draw.text(
-        (28, 14),
+        (24, 12),
         "101 OKEY · AI GELİŞİMİ",
         font=_font(25, bold=True),
         fill="#ffffff",
     )
     draw.text(
-        (28, 45),
+        (24, 42),
         f"{checkpoint['label']} · Eğitim adımı {checkpoint['training_step']:,}",
         font=_font(16),
         fill="#8fd8c2",
     )
     draw.text(
-        (width - 290, 18),
+        (width - 265, 15),
         f"Kare {frame_index + 1}/{len(frames)}",
         font=_font(16, bold=True),
         fill="#ffffff",
     )
     draw.text(
-        (width - 290, 43),
+        (width - 265, 41),
         (
             f"Tur {view['turn_number']} · "
             f"{_PHASE_LABELS.get(str(view['phase']), str(view['phase']).upper())}"
@@ -574,52 +677,69 @@ def render_frame(
 
     players = view["players"]
     current = int(view["current_player"])
-    side_width = max(180, round(width * 0.17))
-    center_left = side_width + 24
-    center_right = width - side_width - 24
+    side_width = max(176, round(width * 0.165))
+    center_left = side_width + 18
+    center_right = width - side_width - 18
+    footer_y = height - 68
+    bottom_top = height - 168
     _player_panel(
         draw,
         players[2],
-        (center_left, 86, center_right, 186),
+        (center_left, 78, center_right, 166),
         active=current == 2,
         columns=22,
     )
     _player_panel(
         draw,
         players[0],
-        (center_left, height - 190, center_right, height - 82),
+        (center_left, bottom_top, center_right, footer_y - 8),
         active=current == 0,
         columns=22,
     )
     _player_panel(
         draw,
         players[3],
-        (16, 130, side_width, height - 130),
+        (10, 104, side_width, height - 112),
         active=current == 3,
         columns=5,
     )
     _player_panel(
         draw,
         players[1],
-        (width - side_width, 130, width - 16, height - 130),
+        (width - side_width, 104, width - 10, height - 112),
         active=current == 1,
         columns=5,
     )
 
-    status_y = 194
-    status_gap = 7
-    status_width = max(
-        94,
-        (center_right - center_left - status_gap * 3) // 4,
+    arena_top = 174
+    arena_bottom = bottom_top - 8
+    _rounded(
+        draw,
+        (center_left, arena_top, center_right, arena_bottom),
+        radius=11,
+        fill="#164f39",
+        outline="#6f9d7d",
     )
+    draw.line(
+        (center_left + 8, arena_top + 7, center_right - 8, arena_top + 7),
+        fill="#2e6c50",
+        width=1,
+    )
+
+    status_y = arena_top + 7
+    status_gap = 8
+    central_status_width = min(160, max(128, (center_right - center_left) // 5))
+    status_total = central_status_width * 3 + status_gap * 2
+    status_left = center_left + (center_right - center_left - status_total) // 2
     indicator = view["indicator"]
     _status_tile(
         draw,
         label="GÖSTERGE",
         tile=indicator,
-        x=center_left,
+        x=status_left,
         y=status_y,
-        width=status_width,
+        width=central_status_width,
+        marker="flower",
     )
     okey_value = view["okey_value"]
     assert isinstance(okey_value, Mapping)
@@ -627,26 +747,29 @@ def render_frame(
         str(okey_value.get("color")),
         str(okey_value.get("color", "")),
     )
-    okey_tile: Mapping[str, object] = {
-        "display": okey_value,
-        "is_real_okey": True,
-    }
-    second_x = center_left + status_width + status_gap
+    okey_tile: Mapping[str, object] = {"display": okey_value}
+    second_x = status_left + central_status_width + status_gap
     _status_tile(
         draw,
         label=f"OKEY · {okey_color.upper()} {okey_value['number']}",
         tile=okey_tile,
         x=second_x,
         y=status_y,
-        width=status_width,
+        width=central_status_width,
+        marker="flower",
     )
-    stock_x = second_x + status_width + status_gap
+    stock_x = second_x + central_status_width + status_gap
     _rounded(
         draw,
-        (stock_x, status_y, stock_x + status_width, status_y + 51),
+        (
+            stock_x,
+            status_y,
+            stock_x + central_status_width,
+            status_y + 51,
+        ),
         radius=7,
-        fill="#102f28",
-        outline="#315f55",
+        fill="#382519",
+        outline="#9a6c3d",
     )
     draw.text(
         (stock_x + 8, status_y + 6),
@@ -661,40 +784,95 @@ def render_frame(
         fill="#ffffff",
     )
     draw.text(
-        (stock_x + 48, status_y + 28),
+        (stock_x + 50, status_y + 28),
         f"Atılan {len(view['discard_pile'])}",
         font=_font(10),
         fill="#ffd77a",
     )
-    last_x = stock_x + status_width + status_gap
-    discard_top = view.get("discard_top")
-    _status_tile(
+    table_top = status_y + 61
+    table_bottom = arena_bottom - 61
+    table_left = center_left + 103
+    table_right = center_right - 103
+    _rounded(
         draw,
-        label="SON ATILAN",
-        tile=discard_top if isinstance(discard_top, Mapping) else None,
-        x=last_x,
-        y=status_y,
-        width=status_width,
+        (table_left, table_top, table_right, table_bottom),
+        radius=10,
+        fill="#7a4d29",
+        outline="#b7864f",
     )
-
-    table_top = 257
-    table_bottom = height - 202
-    discard_width = min(118, max(102, (center_right - center_left) // 6))
-    discard_left = center_right - discard_width
+    for wood_y in range(table_top + 14, table_bottom, 24):
+        draw.line(
+            (table_left + 5, wood_y, table_right - 5, wood_y),
+            fill="#68401f",
+            width=1,
+        )
+    draw.text(
+        (
+            (table_left + table_right) // 2 - 42,
+            (table_top + table_bottom) // 2 - 19,
+        ),
+        "101",
+        font=_font(40, bold=True),
+        fill="#5e351c",
+    )
     _table(
         draw,
         view["table"],
-        (center_left, table_top, discard_left - 10, table_bottom),
+        (table_left + 12, table_top + 10, table_right - 12, table_bottom - 8),
     )
     discard_history = view.get("discard_history", [])
     assert isinstance(discard_history, Sequence)
-    _discard_panel(
+    pocket_width = 98
+    pocket_height = 50
+    _discard_pocket(
         draw,
         discard_history,
-        (discard_left, table_top, center_right, table_bottom),
+        player_id=3,
+        label="O4",
+        box=(
+            center_left + 8,
+            table_top,
+            center_left + 8 + pocket_width,
+            table_top + pocket_height,
+        ),
+    )
+    _discard_pocket(
+        draw,
+        discard_history,
+        player_id=1,
+        label="O2",
+        box=(
+            center_right - 8 - pocket_width,
+            table_top,
+            center_right - 8,
+            table_top + pocket_height,
+        ),
+    )
+    _discard_pocket(
+        draw,
+        discard_history,
+        player_id=0,
+        label="O1",
+        box=(
+            center_left + 8,
+            table_bottom + 7,
+            center_left + 8 + pocket_width,
+            table_bottom + 7 + pocket_height,
+        ),
+    )
+    _discard_pocket(
+        draw,
+        discard_history,
+        player_id=2,
+        label="O3",
+        box=(
+            center_right - 8 - pocket_width,
+            table_bottom + 7,
+            center_right - 8,
+            table_bottom + 7 + pocket_height,
+        ),
     )
 
-    footer_y = height - 76
     draw.rectangle((0, footer_y, width, height), fill="#081f1a")
     draw.text(
         (28, footer_y + 12),

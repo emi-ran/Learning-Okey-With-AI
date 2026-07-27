@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta
       name="description"
-      content="AI Okey self-play eğitimini episode episode canlı izleyin."
+      content="101 Okey yapay zekâsının self-play eğitimini, cezaları ve checkpoint karşılaştırmalarını canlı izleyin."
     />
-    <title>AI Okey — Canlı Eğitim Locası</title>
+    <title>101 Okey AI — Canlı Eğitim Raporu</title>
     <link rel="stylesheet" href="./training.css" />
   </head>
   <body>
@@ -15,40 +15,36 @@
     <main class="training-shell">
       <header class="scoreboard">
         <a class="brand" href="./" aria-label="Replay masasına dön">
-          <span class="brand-tiles" aria-hidden="true">
-            <i>1</i><i>0</i><i>1</i>
-          </span>
+          <span class="brand-mark" aria-hidden="true">101</span>
           <span>
-            <small>SELF-PLAY YAYINI</small>
-            <strong>Canlı Eğitim Locası</strong>
+            <small>SELF-PLAY LABORATUVARI</small>
+            <strong>Canlı Eğitim Raporu</strong>
           </span>
         </a>
-
         <div class="connection" id="connectionBadge" data-state="waiting">
           <span></span>
           <b id="connectionText">DURUM BEKLENİYOR</b>
         </div>
-
         <div class="run-clock">
-          <small>GEÇEN SÜRE</small>
+          <small>DUVAR SÜRESİ</small>
           <strong id="elapsedTime">00:00</strong>
         </div>
       </header>
 
       <section class="hero-grid">
         <article class="progress-stage">
-          <div class="section-kicker">EĞİTİM DURUMU</div>
+          <div class="eyebrow">EĞİTİM DURUMU</div>
           <div class="progress-copy">
             <div>
               <h1 id="phaseTitle">Trainer bekleniyor</h1>
               <p id="phaseMessage">
-                Eğitim komutu başladığında bu ekran otomatik güncellenecek.
+                Eğitim komutu başladığında bu rapor otomatik güncellenecek.
               </p>
             </div>
             <div class="episode-counter">
               <span id="episodeCurrent">0</span>
               <i>/</i>
-              <strong id="episodeTarget">200</strong>
+              <strong id="episodeTarget">—</strong>
               <small>EPISODE</small>
             </div>
           </div>
@@ -57,32 +53,36 @@
             <div id="checkpointTicks" class="checkpoint-ticks"></div>
           </div>
           <div class="progress-meta">
-            <span id="progressPercent">0.0%</span>
+            <span id="progressPercent">0,0%</span>
             <span id="nextCheckpoint">İlk checkpoint hazırlanıyor</span>
           </div>
         </article>
 
-        <aside class="live-ticket">
-          <div>
-            <small>RUN</small>
-            <strong id="runName">—</strong>
-          </div>
-          <div>
-            <small>TRAIN SEED</small>
-            <strong id="trainSeed">—</strong>
-          </div>
-          <div>
-            <small>REPLAY SEED</small>
-            <strong id="replaySeed">—</strong>
-          </div>
-          <div>
-            <small>SON GÜNCELLEME</small>
-            <strong id="lastUpdated">—</strong>
-          </div>
+        <aside class="run-ticket">
+          <div><small>RUN</small><strong id="runName">—</strong></div>
+          <div><small>TRAIN SEED</small><strong id="trainSeed">—</strong></div>
+          <div><small>REPLAY SEED</small><strong id="replaySeed">—</strong></div>
+          <div><small>DEĞERLENDİRME</small><strong id="evaluationEpisodes">—</strong></div>
+          <div><small>SON VERİ</small><strong id="lastUpdated">—</strong></div>
         </aside>
       </section>
 
       <section class="metrics-strip" aria-label="Canlı eğitim ölçümleri">
+        <article class="accent">
+          <small>CANLI HIZ</small>
+          <strong id="liveSpeed">—</strong>
+          <span>episode / saniye · son 100</span>
+        </article>
+        <article>
+          <small>HAMLE HIZI</small>
+          <strong id="actionSpeed">—</strong>
+          <span>hamle / saniye</span>
+        </article>
+        <article>
+          <small>TAHMİNİ KALAN</small>
+          <strong id="etaTime">—</strong>
+          <span>saf eğitim süresi</span>
+        </article>
         <article>
           <small>SON LOSS</small>
           <strong id="lastLoss">—</strong>
@@ -91,27 +91,111 @@
         <article>
           <small>ORT. SKOR</small>
           <strong id="lastScore">—</strong>
-          <span>düşük daha iyi</span>
+          <span>son el · düşük daha iyi</span>
         </article>
         <article>
-          <small>GRADIENT NORM</small>
-          <strong id="lastGradient">—</strong>
-          <span>son güncelleme</span>
-        </article>
-        <article>
-          <small>HAMLE</small>
+          <small>SON EL</small>
           <strong id="lastActions">—</strong>
-          <span>son episode</span>
+          <span>hamle</span>
+        </article>
+      </section>
+
+      <section class="report-heading">
+        <div>
+          <small>TOPLAM SELF-PLAY TELEMETRİSİ</small>
+          <h2>Masada gerçekte ne oluyor?</h2>
+        </div>
+        <p>
+          Ceza sayıları motorun uyguladığı gerçek 101 puanlık işlek ve Okey
+          atmalarından gelir. Son skor cezaları bu tabloya karıştırılmaz.
+        </p>
+      </section>
+
+      <section class="report-grid">
+        <article class="report-card behavior-card">
+          <div class="card-heading">
+            <div><small>DAVRANIŞ</small><h3>Riskli kararlar</h3></div>
+            <span class="card-stamp" id="totalDiscards">0 ATMA</span>
+          </div>
+          <div class="behavior-pairs">
+            <div>
+              <i class="warning-dot"></i>
+              <span>İşlek taş atıldı</span>
+              <strong id="playableDiscards">0</strong>
+              <em id="playableRate">%0,0</em>
+            </div>
+            <div>
+              <i class="okey-dot">✿</i>
+              <span>Gerçek Okey atıldı</span>
+              <strong id="okeyDiscards">0</strong>
+              <em id="okeyRate">%0,0</em>
+            </div>
+            <div>
+              <i class="penalty-dot">!</i>
+              <span>Toplam ceza olayı</span>
+              <strong id="penaltyEvents">0</strong>
+              <em id="penaltyPoints">0 puan</em>
+            </div>
+            <div>
+              <i class="finish-dot">✓</i>
+              <span>Bitiş görülen el</span>
+              <strong id="finishCount">0</strong>
+              <em id="finishRate">%0,0</em>
+            </div>
+          </div>
+        </article>
+
+        <article class="report-card player-card">
+          <div class="card-heading">
+            <div><small>OYUNCU KIRILIMI</small><h3>Kim ceza yedi?</h3></div>
+            <span class="card-stamp">ORTAK POLİTİKA</span>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Oyuncu</th>
+                  <th>İşlek</th>
+                  <th>Okey</th>
+                  <th>Ceza</th>
+                  <th>Açtı</th>
+                  <th>Bitirdi</th>
+                  <th>Ort. skor</th>
+                </tr>
+              </thead>
+              <tbody id="playerRows">
+                <tr><td colspan="7">İlk episode bekleniyor.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="report-card terminal-card">
+          <div class="card-heading">
+            <div><small>EL SONLARI</small><h3>Neden bitti?</h3></div>
+          </div>
+          <div id="terminalReasons" class="terminal-reasons">
+            <p>Henüz tamamlanan episode yok.</p>
+          </div>
+        </article>
+
+        <article class="report-card opening-card">
+          <div class="card-heading">
+            <div><small>MASA DAVRANIŞI</small><h3>Açma profili</h3></div>
+          </div>
+          <div class="opening-stats">
+            <div><span>Seri açılışı</span><strong id="openedSeries">0</strong></div>
+            <div><span>Çift açılışı</span><strong id="openedPairs">0</strong></div>
+            <div><span>Ceza ortalaması</span><strong id="penaltyMean">0</strong></div>
+            <div><span>Toplam hamle</span><strong id="totalActions">0</strong></div>
+          </div>
         </article>
       </section>
 
       <section class="analysis-grid">
         <article class="chart-card">
           <div class="card-heading">
-            <div>
-              <small>EPISODE TELEMETRİSİ</small>
-              <h2>Öğrenme nabzı</h2>
-            </div>
+            <div><small>EPISODE TELEMETRİSİ</small><h3>Öğrenme nabzı</h3></div>
             <div class="legend">
               <span class="loss-key">Loss</span>
               <span class="score-key">Ortalama skor</span>
@@ -136,14 +220,12 @@
               İlk episode bekleniyor
             </text>
           </svg>
+          <p class="chart-note" id="historyCoverage">Canlı geçmiş bekleniyor.</p>
         </article>
 
         <article class="episode-log-card">
           <div class="card-heading">
-            <div>
-              <small>SON ELLER</small>
-              <h2>Trainer günlüğü</h2>
-            </div>
+            <div><small>SON ELLER</small><h3>Trainer günlüğü</h3></div>
           </div>
           <ol id="episodeLog" class="episode-log">
             <li class="empty-row">Henüz tamamlanan episode yok.</li>
@@ -154,20 +236,21 @@
       <section class="checkpoint-section">
         <div class="checkpoint-heading">
           <div>
-            <small>SABİT SEED: 0 · 20 · 80 · 200</small>
+            <small id="checkpointSeedLabel">SABİT DEĞERLENDİRME</small>
             <h2>Checkpoint film şeridi</h2>
           </div>
           <p>
-            Her kart aynı dağıtım seed’ini oynatır; böylece kararların zamanla
-            nasıl değiştiğini karşılaştırabilirsin.
+            Aynı değerlendirme seed’leri ve aynı replay eli kullanılır. Böylece
+            modelin gerçekten değişip değişmediğini adil biçimde karşılaştırırsın.
           </p>
         </div>
         <div id="checkpointGrid" class="checkpoint-grid"></div>
       </section>
 
       <footer>
-        <span>Politika yalnız oyuncu gözlemini görür.</span>
-        <span>Seyirci elleri sadece replay katmanında açılır.</span>
+        <span>Politika yalnız kendi oyuncu gözlemini görür.</span>
+        <span>Tüm eller sadece seyirci/replay katmanında açılır.</span>
+        <a id="historyDownload" href="#" class="is-disabled">Tam JSONL raporu</a>
       </footer>
     </main>
 
@@ -189,6 +272,10 @@
         <dl class="checkpoint-metrics">
           <div><dt>Ort. skor</dt><dd data-metric="score">—</dd></div>
           <div><dt>Göreli ödül</dt><dd data-metric="reward">—</dd></div>
+          <div><dt>Bitirme</dt><dd data-metric="finish">—</dd></div>
+          <div><dt>Ort. ceza</dt><dd data-metric="penalty">—</dd></div>
+          <div><dt>Cezalı el</dt><dd data-metric="penalized">—</dd></div>
+          <div><dt>Seri açma</dt><dd data-metric="series">—</dd></div>
           <div><dt>İşlek atma</dt><dd data-metric="playable">—</dd></div>
           <div><dt>Okey atma</dt><dd data-metric="okey">—</dd></div>
         </dl>

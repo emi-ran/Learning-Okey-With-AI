@@ -16,7 +16,12 @@ from okey101.rl.candidate_encoder import SCALAR_NAMES, encode_candidate
 from okey101.rl.env import Decision, SingleRoundEnv
 from okey101.rl.policy import ModelInput, prepare_model_input
 
-from .model import NumpyActorCritic, observation_vector
+from .model import (
+    FloatArray,
+    NumpyActorCritic,
+    candidate_matrix,
+    observation_vector,
+)
 from .optimizer import Adam
 
 _PLAYABLE_INDEX = SCALAR_NAMES.index("nonfinal_playable_discard")
@@ -66,6 +71,16 @@ class EpisodeTrainingResult:
     rewards: tuple[float, ...]
     final_scores: tuple[int, ...]
     terminal_reason: str
+    winner_seat: int | None
+    actions_by_seat: tuple[int, ...]
+    discard_actions: int
+    discards_by_seat: tuple[int, ...]
+    real_okey_discards: int
+    real_okey_discards_by_seat: tuple[int, ...]
+    playable_discards: int
+    playable_discards_by_seat: tuple[int, ...]
+    immediate_penalties: tuple[int, ...]
+    opened_modes: tuple[str, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -78,6 +93,13 @@ class EvaluationResult:
     discard_actions: int
     real_okey_discards: int
     playable_discards: int
+    immediate_penalty_points: int
+    penalized_episodes: int
+    opened_series: int
+    opened_pairs: int
+    best_score: int
+    worst_score: int
+    terminal_reasons: dict[str, int]
 
     @property
     def real_okey_discard_rate(self) -> float:
@@ -94,6 +116,14 @@ class EvaluationResult:
             if self.discard_actions
             else 0.0
         )
+
+    @property
+    def mean_immediate_penalty(self) -> float:
+        return self.immediate_penalty_points / self.episodes
+
+    @property
+    def penalized_episode_rate(self) -> float:
+        return self.penalized_episodes / self.episodes
 
 
 def _selected_action(
@@ -168,19 +198,40 @@ class SelfPlayTrainer:
             seed=episode_seed,
             starting_player=starting_player,
         )
-        trajectory: list[tuple[ModelInput, int, int]] = []
+        trajectory: list[
+            tuple[FloatArray, FloatArray, int, int]
+        ] = []
+        actions_by_seat = [0] * self.game_config.player_count
+        discards_by_seat = [0] * self.game_config.player_count
+        real_okey_by_seat = [0] * self.game_config.player_count
+        playable_by_seat = [0] * self.game_config.player_count
 
         for action_index in range(
             1,
             self.training_config.max_actions_per_episode + 1,
         ):
             model_input = prepare_model_input(decision, self.game_config)
-            selected, _value = self.model.select(
-                model_input,
+            observation = observation_vector(model_input)
+            candidates = candidate_matrix(model_input)
+            selected, _value = self.model.select_prepared(
+                observation,
+                candidates,
                 rng=self.rng,
             )
-            trajectory.append((model_input, selected, decision.seat))
-            result = env.step(_selected_action(decision, selected))
+            action = _selected_action(decision, selected)
+            discard, okey, playable = _discard_flags(
+                decision,
+                action,
+                self.game_config,
+            )
+            actions_by_seat[decision.seat] += 1
+            discards_by_seat[decision.seat] += discard
+            real_okey_by_seat[decision.seat] += okey
+            playable_by_seat[decision.seat] += playable
+            trajectory.append(
+                (observation, candidates, selected, decision.seat)
+            )
+            result = env.step(action)
             if not result.terminated:
                 assert result.next_decision is not None
                 decision = result.next_decision
@@ -191,11 +242,16 @@ class SelfPlayTrainer:
                 or result.terminal_reason is None
             ):
                 raise RuntimeError("terminal environment result is incomplete")
+            if (
+                result.immediate_penalties is None
+                or result.opened_modes is None
+            ):
+                raise RuntimeError("terminal telemetry is incomplete")
             samples = [
-                (features, choice, result.rewards[seat])
-                for features, choice, seat in trajectory
+                (observation, candidates, choice, result.rewards[seat])
+                for observation, candidates, choice, seat in trajectory
             ]
-            loss, gradients = self.model.loss_and_gradients(
+            loss, gradients = self.model.loss_and_gradients_prepared(
                 samples,
                 value_coefficient=self.training_config.value_coefficient,
                 entropy_coefficient=self.training_config.entropy_coefficient,
@@ -215,6 +271,20 @@ class SelfPlayTrainer:
                 rewards=result.rewards,
                 final_scores=result.final_scores,
                 terminal_reason=result.terminal_reason.value,
+                winner_seat=(
+                    None
+                    if result.terminal_reason in _NO_WINNER_REASONS
+                    else result.acting_seat
+                ),
+                actions_by_seat=tuple(actions_by_seat),
+                discard_actions=sum(discards_by_seat),
+                discards_by_seat=tuple(discards_by_seat),
+                real_okey_discards=sum(real_okey_by_seat),
+                real_okey_discards_by_seat=tuple(real_okey_by_seat),
+                playable_discards=sum(playable_by_seat),
+                playable_discards_by_seat=tuple(playable_by_seat),
+                immediate_penalties=result.immediate_penalties,
+                opened_modes=result.opened_modes,
             )
         raise RuntimeError(
             f"episode seed {episode_seed} exceeded "
@@ -257,6 +327,12 @@ def evaluate_against_random(
     discard_actions = 0
     real_okey_discards = 0
     playable_discards = 0
+    immediate_penalty_points = 0
+    penalized_episodes = 0
+    opened_series = 0
+    opened_pairs = 0
+    scores: list[int] = []
+    terminal_reasons: dict[str, int] = {}
 
     for episode_offset in range(episodes):
         episode_seed = start_seed + episode_offset
@@ -296,8 +372,23 @@ def evaluate_against_random(
                 continue
             assert result.final_scores is not None
             assert result.terminal_reason is not None
+            assert result.immediate_penalties is not None
+            assert result.opened_modes is not None
             reward_total += result.rewards[learned_seat]
-            score_total += result.final_scores[learned_seat]
+            learned_score = result.final_scores[learned_seat]
+            score_total += learned_score
+            scores.append(learned_score)
+            learned_penalty = result.immediate_penalties[learned_seat]
+            immediate_penalty_points += learned_penalty
+            penalized_episodes += int(learned_penalty > 0)
+            opened_series += int(
+                result.opened_modes[learned_seat] == "series"
+            )
+            opened_pairs += int(
+                result.opened_modes[learned_seat] == "pairs"
+            )
+            reason = result.terminal_reason.value
+            terminal_reasons[reason] = terminal_reasons.get(reason, 0) + 1
             if (
                 result.terminal_reason not in _NO_WINNER_REASONS
                 and result.acting_seat == learned_seat
@@ -319,4 +410,11 @@ def evaluate_against_random(
         discard_actions=discard_actions,
         real_okey_discards=real_okey_discards,
         playable_discards=playable_discards,
+        immediate_penalty_points=immediate_penalty_points,
+        penalized_episodes=penalized_episodes,
+        opened_series=opened_series,
+        opened_pairs=opened_pairs,
+        best_score=min(scores),
+        worst_score=max(scores),
+        terminal_reasons=terminal_reasons,
     )

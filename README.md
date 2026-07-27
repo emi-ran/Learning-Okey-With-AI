@@ -112,6 +112,44 @@ Eğitim bitince panel açık kalır. Kapatmak için terminalde `Ctrl+C` kullanı
 
 Videosuz ve daha hızlı bir deneme için komuta `--no-video` ekleyebilirsiniz.
 
+Canlı panel artık şunları ayrı ayrı raporlar:
+
+- saf eğitim hızı, hamle hızı ve tahmini kalan süre,
+- toplam ve oyuncu bazında işlek taş/Okey atma cezaları,
+- ceza olayı ile gerçek ceza puanı,
+- seri/çift açma, bitirme ve terminal nedenleri,
+- checkpoint başına sabit-seed skor, ödül, ceza ve davranış oranları.
+
+Panel için örneklenmiş geçmiş `status.json` içinde, her episode'un tam kaydı ise
+aynı deney klasöründeki `history.jsonl` dosyasında tutulur.
+
+## 10.000 episode uzun koşu
+
+```powershell
+python -m benchmarks.train_progression `
+  --episodes 10000 `
+  --checkpoints 0,100,1000,2000,5000,10000 `
+  --seed 42 `
+  --replay-seed 42 `
+  --evaluation-episodes 100 `
+  --output-dir artifacts\training\progression-10000 `
+  --serve-port 4173 `
+  --open-dashboard `
+  --keep-serving
+```
+
+Her checkpoint için model, sabit değerlendirme, doğrulanmış replay, poster ve
+MP4 üretilir. Nihai eğitilmiş model:
+
+```text
+artifacts\training\progression-10000\checkpoints\checkpoint-10000.npz
+```
+
+Bu `.npz` yalnız ağırlıkları değil; optimizer adımını, optimizer durumunu,
+tamamlanan episode/hamle sayılarını ve RNG durumunu da taşır. Daha sonra replay
+üretmekte kullanılabilir veya `python -m okey101.training.cli --resume ...`
+ile deterministik biçimde eğitime devam edilebilir.
+
 ## Replay izleme
 
 Bir replay dosyasını bağımsız viewer'da açmak için proje kökünde:
