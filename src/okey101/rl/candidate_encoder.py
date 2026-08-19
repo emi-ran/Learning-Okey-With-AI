@@ -157,6 +157,9 @@ class CandidateFeatures:
     def as_vector(self) -> tuple[float, ...]:
         """Flatten the documented V1 blocks in a stable order."""
 
+        flat_groups: list[float] = []
+        for group in self.laid_groups:
+            flat_groups.extend(group)
         return (
             *self.action_type,
             *self.selected_tile_roles,
@@ -167,7 +170,7 @@ class CandidateFeatures:
             *self.target_values,
             *self.target_joker_assignments,
             *self.scalars,
-            *(value for group in self.laid_groups for value in group),
+            *flat_groups,
             *self.laid_group_mask,
         )
 

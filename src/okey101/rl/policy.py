@@ -26,6 +26,7 @@ class ModelInput:
             raise ValueError(
                 "candidate feature rows and action mask must have equal length"
             )
+        seen_padding = False
         for index, (features, enabled) in enumerate(
             zip(self.candidate_features, self.action_mask, strict=True)
         ):
@@ -35,12 +36,11 @@ class ModelInput:
                 raise ValueError(
                     f"candidate feature row {index} has an invalid width"
                 )
-            if not all(isinstance(value, float) for value in features):
-                raise TypeError("candidate features must contain only floats")
+            for value in features:
+                if not isinstance(value, float):
+                    raise TypeError("candidate features must contain only floats")
             if not enabled and any(features):
                 raise ValueError("padding candidate features must contain only zeros")
-        seen_padding = False
-        for enabled in self.action_mask:
             if not enabled:
                 seen_padding = True
             elif seen_padding:

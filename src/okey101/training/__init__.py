@@ -6,6 +6,7 @@ from .checkpoint import (
     save_checkpoint,
 )
 from .model import NumpyActorCritic
+from .parallel import ParallelSelfPlayTrainer
 from .replay import DeterministicPolicySelector
 from .trainer import (
     EpisodeTrainingResult,
@@ -21,6 +22,7 @@ __all__ = [
     "EpisodeTrainingResult",
     "EvaluationResult",
     "NumpyActorCritic",
+    "ParallelSelfPlayTrainer",
     "SelfPlayTrainer",
     "TrainingConfig",
     "evaluate_against_random",
