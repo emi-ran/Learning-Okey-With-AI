@@ -2,6 +2,8 @@
 
 Deterministik bir 101 Okey motoru üzerinde dört yapay zekânın aynı nöral politikayı kullanarak kendi kendine öğrendiği (**Self-Play Reinforcement Learning**), canlı izlenebildiği ve replay/video olarak analiz edilebildiği açık kaynaklı araştırma projesi.
 
+> **Araştırma ve eğitim notu:** Bu proje, 101 Okey kurallarını modelleme, self-play pekiştirmeli öğrenme ve oyun yapay zekâsı eğitimi için geliştirilmiştir. Çevrimiçi oyunlara bağlanmaz, gerçek oyuncu hesaplarıyla etkileşime girmez ve haksız avantaj veya kötüye kullanım amacı taşımaz.
+
 <p align="center">
   <img
     src="docs/assets/replay-viewer.webp"
